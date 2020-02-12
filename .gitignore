@@ -114,6 +114,12 @@ venv.bak/
 .spyderproject
 .spyproject
 
+# PyCharm directory
+PeriodicBoundaryCondition/.idea
+
+# Releases
+releases/
+
 # Rope project settings
 .ropeproject
 
