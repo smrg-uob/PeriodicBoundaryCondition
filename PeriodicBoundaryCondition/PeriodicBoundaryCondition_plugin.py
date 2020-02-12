@@ -46,5 +46,5 @@ toolset.registerGuiMenuButton(
     version='1.0',
     author='Xavier van Heule',
     description='A plugin to easily create periodic boundary conditions on 3D geometry',
-    helpUrl='N/A'
+    helpUrl='https://github.com/smrg-uob/PeriodicBoundaryCondition/blob/master/README.md'
 )
