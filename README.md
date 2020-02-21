@@ -12,7 +12,7 @@ When done correctly, the plugin should appear in Abaqus CAE under the plugins it
 Periodic boundary conditions can be used to model an infinite or semi-infinite domain using its unit cell.
 See [this paper](https://github.com/smrg-uob/PeriodicBoundaryCondition/blob/master/doc/applying%20periodic%20boundary%20conditions%20in%20finite%20element%20analysis.pdf) for more details.
 
-In summary, a periodic boundary condition between to surfaces can be added in Abaqus by applying a relevant constraint between each of their nodes.
+In summary, a periodic boundary condition between two surfaces can be added in Abaqus by applying a relevant constraint between each of their nodes.
 This plugin allows to easily add periodic boundary conditions to an Abaqus model.
 
 ## User interface 
