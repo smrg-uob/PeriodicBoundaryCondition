@@ -5,12 +5,18 @@ import PeriodicBoundaryCondition_DB
 from kernelAccess import mdb
 
 
+# Class for the plugin, the code is implemented as a procedure running to different steps.
+# The code is designed as such that the automatic issuing of commands by Abaqus is avoided.
+# The procedure will only loop through the inner step sequence (see the Abaqus GUI Toolkit User Manual 7.2.1)
+# Kernel commands are issued manually where necessary, and the procedure is exited when the user closes the GUI
 class Plugin(abaqusGui.AFXProcedure):
+    # Constants defining flags for the different steps
     STEP_OVERVIEW = 0
     STEP_NEW = 1
     STEP_CONFIRM = 2
     STEP_CLOSE = 3
 
+    # An array holding the names of each step (useful for debugging)
     STEPS = ['OVERVIEW', 'NEW', 'CONFIRM', 'CLOSE']
 
     def __init__(self, owner):
@@ -57,19 +63,21 @@ class Plugin(abaqusGui.AFXProcedure):
         cmd = abaqusGui.AFXGuiCommand(mode=self, method='create_registry',
                                                  objectName='PeriodicBoundaryCondition_kernel', registerQuery=True)
         issue_command(cmd)
+        # Return True indicating the command was issued
+        return True
 
     # Issues the command to match nodes
     def issue_match(self):
-        # Check if name already exists
+        # Check if the name already exists
         name = self.getCurrentDialog().get_current_name()
         if mdb.customData.matchers.has_key(name):
-            # Display error message
+            # The name already exists: display an error message
             abaqusGui.showAFXErrorDialog(abaqusGui.getAFXApp().getAFXMainWindow(),
                                          'A constraint with this name already exists')
             # Return false indicating the command was not issued
             return False
         else:
-            # Issue the command
+            # The name does not exist yet: issue the command
             cmd = abaqusGui.AFXGuiCommand(mode=self, method='match_nodes',
                                           objectName='PeriodicBoundaryCondition_kernel', registerQuery=True)
             abaqusGui.AFXIntKeyword(cmd, 'model', True, self.getCurrentDialog().currentModel, False)
@@ -113,15 +121,13 @@ class Plugin(abaqusGui.AFXProcedure):
     def activate(self):
         # Set first step
         self.currentStep = self.STEP_OVERVIEW
-        # Initialize the registry
+        # Make sure the registry is initialized
         self.issue_init()
         # Call super method
         abaqusGui.AFXProcedure.activate(self)
 
     # Called when the mode is deactivated
     def deactivate(self):
-        # Set close step
-        # self.currentStep = self.STEP_CLOSE
         # Call super method
         abaqusGui.AFXProcedure.deactivate(self)
 
@@ -132,11 +138,12 @@ class Plugin(abaqusGui.AFXProcedure):
 
     # Override from AFXProcedure to return the next step in the inner step loop
     def getNextStep(self, prev_step):
+        # simply forward to the general step selection method
         return self.get_next_step()
 
     # Override from AFXProcedure to return the next step in the outer step loop
     def getLoopStep(self):
-        # We should never get here
+        # We should never get here, but if we do, we can simply end the procedure by returning nothing
         return None
 
     # Override to verify the keyword values in the inner loop
@@ -204,12 +211,12 @@ class Plugin(abaqusGui.AFXProcedure):
         return self.currentStep == self.STEP_CLOSE or self.currentStep == self.STEP_OVERVIEW
 
 
-# Issues a general command
+# Utility method to issues a command to the kernel
 def issue_command(cmd):
     abaqusGui.sendCommand(cmd.getCommandString())
 
 
-# Method to print a message to the terminal
+# Utility method to print a message to the console
 def debug_message(msg):
     abaqusGui.getAFXApp().getAFXMainWindow().writeToMessageArea(msg)
 
@@ -256,7 +263,7 @@ class DialogStep(abaqusGui.AFXDialogStep):
         abaqusGui.AFXDialogStep.onSuspend(self)
 
 
-# Register the plug-in
+# Code for the registration of the plug-in
 thisPath = os.path.abspath(__file__)
 thisDir = os.path.dirname(thisPath)
 toolset = abaqusGui.getAFXApp().getAFXMainWindow().getPluginToolset()

@@ -1,7 +1,6 @@
 import abaqus
 import customKernel
 import customKernelSerialize
-import pickle
 
 
 # Makes sure the registry exists
@@ -10,18 +9,20 @@ def create_registry():
     if hasattr(abaqus.mdb.customData, 'matchers'):
         # The repository exists, now make sure it is unpickled
         if isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject):
+            # If the repository is in an unpickled state, we need to unpickle it manually
             debug_message('Matcher repository has not been unpickled, unpickling manually')
             # Unpickle the matchers
-            unpickled_objects = pickle.loads(abaqus.mdb.customData.matchers.pickleString)
-            # Delete the unpickled repository and method
+            import pickle
+            unpickled = pickle.loads(abaqus.mdb.customData.matchers.pickleString)
+            # Delete the unpickled data
             del abaqus.mdb.customData.matchers
             del abaqus.mdb.customData.MatcherContainer
             # Reinitialize the repository
             abaqus.mdb.customData.Repository('matchers', MatcherContainer)
             # Repopulate the registry
-            for key in unpickled_objects.keys():
+            for key in unpickled.keys():
                 # fetch unpickled matcher
-                container = unpickled_objects[key]
+                container = unpickled[key]
                 # store the matcher in a new container in the registry
                 abaqus.mdb.customData.MatcherContainer(container.get_name(), container.get_matcher())
     else:
@@ -63,6 +64,7 @@ def apply_constraints(name):
         pass
 
 
+# Runs the script to remove the constraints
 def remove_constraints(name):
     debug_message('Removing constraints for ' + name)
     # fetch matcher
@@ -77,6 +79,7 @@ def remove_constraints(name):
 
 # Wrapper class to store matchers in the mdb custom data, also helps with the manual unpickling
 class MatcherContainer(customKernel.CommandRegister):
+    # Constructor
     def __init__(self, name, matcher):
         # Super constructor
         customKernel.CommandRegister.__init__(self)
@@ -85,9 +88,11 @@ class MatcherContainer(customKernel.CommandRegister):
         # Store matcher
         self.matcher = matcher
 
+    # Getter for the name
     def get_name(self):
         return self.name
 
+    # Getter for the matcher
     def get_matcher(self):
         return self.matcher
 
@@ -119,55 +124,65 @@ class NodeMatcher:
         # Validate
         self.check_validity()
 
+    # getter for the name of the periodic boundary condition
     def get_name(self):
         return self.name
 
+    # getter for the name of the model
     def get_model_name(self):
         return self.modelName
 
+    # getter for the name of the part
     def get_part_name(self):
         return self.partName
 
+    # getter for the name of the master surface
     def get_master_name(self):
         return self.masterName
 
+    # getter for the name of the slave surface
     def get_slave_name(self):
         return self.slaveName
 
+    # Getter for the match plane
     def get_plane(self):
         return self.plane
 
+    # Getter for the symmetry index
     def get_sym(self):
         return self.sym
 
+    # Fetches the model Abaqus object
     def get_model(self):
         return abaqus.mdb.models[self.get_model_name()]
 
+    # Fetches the part Abaqus object
     def get_part(self):
         return self.get_model().parts[self.get_part_name()]
 
+    # Fetches the master surface Abaqus object
     def get_master_surface(self):
         return self.get_part().surfaces[self.get_master_name()]
 
+    # Fetches the slave surface Abaqus object
     def get_slave_surface(self):
         return self.get_part().surfaces[self.get_slave_name()]
 
-    def get_pair_count(self):
-        return self.n
-
+    # Getter for the flag which tracks if the match configuration is valid
     def is_valid(self):
         return self.valid
 
-    def is_paired(self):
-        return self.paired
-
+    # Getter for the flag which tracks if the node pairs have been matched
     def is_matched(self):
         return self.matched
 
+    # Getter for the flag which tracks if the node pairs have been paired
+    def is_paired(self):
+        return self.paired
+
+    # Checks if the matching setup is valid before execution
+    # (meaning the master and slaves contain an equal number of nodes)
     def check_validity(self):
-        # Validate from existing constraint
-        # TODO: try to fetch from existing constraint
-        # Validate from new constraint
         nodes_m = self.get_master_surface().nodes
         nodes_s = self.get_slave_surface().nodes
         n_m = len(nodes_m)
@@ -229,18 +244,27 @@ class NodeMatcher:
                         self.tot = self.tot + dist
             self.matched = True
 
+    # Gets the total number of node pairs
+    def get_pair_count(self):
+        return self.n
+
+    # Gets the number of node pairs which were exactly matched
     def get_exact_count(self):
         return self.exact
 
+    # Gets the number of node pairs which were matched by proximity
     def get_proximity_count(self):
         return self.prox
 
+    # Gets the minimum distance of the node pairs matched by proximity
     def get_min_proximity(self):
         return self.mn
 
+    # Gets the maximum distance of the node pairs matched by proximity
     def get_max_proximity(self):
         return self.mx
 
+    # Gets the average distance of the node pairs matched by proximity
     def get_av_proximity(self):
         return self.tot / self.get_pair_count()
 
@@ -251,6 +275,7 @@ class NodeMatcher:
                 pair.apply_constraint(self.get_model(), self.get_part(), self.name, self.sym)
             self.paired = True
 
+    # Removes the constraint for a periodic boundary condition for all paired nodes
     def delete_constraints(self):
         if self.is_paired():
             for pair in self.pairs:
@@ -280,6 +305,7 @@ class NodeMatcher:
                 dist = new_dist
         return slave
 
+    # Gets the status message for the confirmation dialog between the matching and pairing steps
     def get_status_messages(self):
         msg = []
         if self.is_valid():
@@ -302,17 +328,20 @@ class NodePair:
         self.plane = plane
         self.index = index
 
+    # Getter for the master label
     def get_master_label(self):
         return self.master_label
 
+    # Getter for the slave label
     def get_slave_label(self):
         return self.slave_label
 
-    # Applies the constraint for a periodic boundary condition to the two nodes
+    # Applies the constraints and sets for a periodic boundary condition on the two nodes
     def apply_constraint(self, model, part, name, sym):
         self.plane.apply_constraint(model, part, self.get_master_label(), self.get_slave_label(),
                                     'pbc_' + name + '_node_' + str(self.index), sym)
 
+    # Removes the constraints and sets for the periodic boundary condition on the two nodes
     def remove_constraint(self, model, name, sym):
         self.plane.remove_constraint(model, 'pbc_' + name + '_node_' + str(self.index), sym)
 
@@ -323,15 +352,18 @@ class NodePair:
 # (currently only works for the XY-, XZ- and YZ-planes)
 # TODO: extend for any arbitrary plane
 class MatchPlane:
+    # Constructor
     def __init__(self, i, j):
         self.i = i
         self.j = j
 
+    # Checks if nodes match, meaning the in-plane coordinates are equal
     def do_nodes_match(self, n1, n2):
         c1 = n1.coordinates
         c2 = n2.coordinates
         return (c1[self.i] == c2[self.i]) and (c1[self.j] == c2[self.j])
 
+    # Calculates the  in-plane distance between two nodes
     def dist_sq(self, n1, n2):
         c1 = n1.coordinates
         c2 = n2.coordinates
@@ -339,6 +371,7 @@ class MatchPlane:
         d_j = c1[self.j] - c2[self.j]
         return d_i * d_i + d_j * d_j
 
+    # Creates the sets and constraints for a periodic boundary condition between two nodes
     def apply_constraint(self, model, part, master_label, slave_label, name, sym):
         # Define the sets
         set_master = name + '_master'
@@ -367,6 +400,7 @@ class MatchPlane:
             # Ignore
             return
 
+    # Deletes the sets and constraints for a periodic boundary condition between two nodes
     def remove_constraint(self, model, name, sym):
         # Delete the constraints
         axes = ['x', 'y', 'z']
@@ -380,10 +414,12 @@ class MatchPlane:
         del model.rootAssembly.sets[name + '_slave']
 
 
+# Utility method to print a message to the console
 def debug_message(msg):
     print(msg)
 
 
+# Utility method to inspect an object and print its attributes and methods to the console
 def inspect_object(obj):
     import inspect
     members = inspect.getmembers(obj)
@@ -393,4 +429,5 @@ def inspect_object(obj):
     debug_message('---------------------')
 
 
+# Static array of the three possible match planes
 PLANES = (MatchPlane(0, 1), MatchPlane(0, 2), MatchPlane(1, 2))

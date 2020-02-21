@@ -3,7 +3,7 @@ import kernelAccess
 from kernelAccess import mdb
 
 
-# Code for the initial overview GUI
+# Class for the initial overview GUI
 class OverviewDialog(abaqusGui.AFXDataDialog):
     # id values, useful for commands between widgets
     [
@@ -55,10 +55,13 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         # Force initial updates
         self.update_boundaries()
 
+    # general callback method for when a user performs an action on a widget,
+    # routes the callback forward to the respective callback method for the widget
     def on_message(self, sender, sel, ptr):
         if abaqusGui.SELID(sel) == self.ID_PBC:
             self.on_boundary_selected()
 
+    # callback method for when the user selects a new matcher
     def on_boundary_selected(self):
         count = self.cbx_pbx.getNumItems()
         flag = False
@@ -87,6 +90,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
             self.txt_pairs.setText('N.A.')
         self.update_buttons()
 
+    # method which can be called to force an update of the matcher combo box
     def update_boundaries(self):
         if is_rep_initialized():
             reset_combo_box(self.cbx_pbx, mdb.customData.matchers.keys())
@@ -98,6 +102,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
     def try_select_boundary(self, name):
         pass
 
+    # method to update the states of the action buttons based on the currently selected matcher
     def update_buttons(self):
         del_btn = self.getActionButton(self.ID_CLICKED_APPLY)
         pair_btn = self.getActionButton(self.ID_CLICKED_OK)
@@ -112,6 +117,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
             else:
                 pair_btn.enable()
 
+    # fetches the currently selected matcher object
     def get_current_matcher(self):
         if self.cbx_pbx.getNumItems() > 0 and is_rep_initialized():
             keys = mdb.customData.matchers.keys()
@@ -123,6 +129,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         else:
             return None
 
+    # method to fetch the currently defined name (must be implemented in all dialogs from which commands will be issued)
     def get_current_name(self):
         if self.cbx_pbx.getNumItems() > 0:
             # Return the name
@@ -136,7 +143,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         self.on_boundary_selected()
 
 
-# Code for the plugin GUI
+# Class for the plugin GUI
 class InputDialog(abaqusGui.AFXDataDialog):
     # id values, useful for commands between widgets
     [
@@ -230,9 +237,12 @@ class InputDialog(abaqusGui.AFXDataDialog):
         self.on_plane_selected()
         self.on_sym_selected()
 
+    # method to fetch the currently defined name (must be implemented in all dialogs from which commands will be issued)
     def get_current_name(self):
         return self.currentName
 
+    # general callback method for when a user performs an action on a widget,
+    # routes the callback forward to the respective callback method for the widget
     def on_message(self, sender, sel, ptr):
         if abaqusGui.SELID(sel) == self.ID_MODEL:
             self.on_model_selected()
@@ -247,6 +257,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
         elif abaqusGui.SELID(sel) == self.ID_SYM:
             self.on_sym_selected()
 
+    # callback method for when the user selects a new slave
     def on_model_selected(self):
         model = self.cbx_model.getItemData(self.cbx_model.getCurrentItem())
         # If a different model has been selected, the GUI needs to be updated
@@ -261,6 +272,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
             reset_combo_box(self.cbx_part, mdb.models[models[model]].parts.keys())
             self.on_part_selected()
 
+    # callback method for when the user selects a new part
     def on_part_selected(self):
         # Check if there are items in the part list
         count = self.cbx_part.getNumItems()
@@ -295,6 +307,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
                 self.on_master_selected()
                 self.on_slave_selected()
 
+    # callback method for when the user selects a new master surface
     def on_master_selected(self):
         # Check if there are items in the master list
         count = self.cbx_master.getNumItems()
@@ -310,6 +323,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
                 # Update master exempts
                 self.populate_exempts(master, self.lst_ex_master)
 
+    # callback method for when the user selects a new slave surface
     def on_slave_selected(self):
         # Check if there are items in the slave list
         count = self.cbx_slave.getNumItems()
@@ -325,12 +339,15 @@ class InputDialog(abaqusGui.AFXDataDialog):
                 # Update slave exempts
                 self.populate_exempts(slave, self.lst_ex_slave)
 
+    # callback method for when the user selects a new match plane
     def on_plane_selected(self):
         self.currentPlane = self.cbx_plane.getItemData(self.cbx_plane.getCurrentItem())
 
+    # callback method for when the user selects a new symmetry setting
     def on_sym_selected(self):
         self.currentSym = self.cbx_sym.getItemData(self.cbx_sym.getCurrentItem())
 
+    # method to update the state of the create button based on the current user inputs
     def update_action_button_state(self):
         m = self.cbx_master.getNumItems()
         s = self.cbx_slave.getNumItems()
@@ -346,6 +363,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
         else:
             ok_button.disable()
 
+    # method to populate the exempts widget with edges to exempt
     def populate_exempts(self, surface, exempt_list):
         # Fetch the edges
         models = mdb.models.keys()
@@ -398,6 +416,7 @@ class ConfirmDialog(abaqusGui.AFXDataDialog):
         for line in lines:
             abaqusGui.FXLabel(p=self, text=line)
 
+    # method to fetch the currently defined name (must be implemented in all dialogs from which commands will be issued)
     def get_current_name(self):
         return self.name
 
@@ -417,9 +436,12 @@ class ErrorDialog(abaqusGui.AFXDataDialog):
             abaqusGui.FXLabel(p=self, text=line)
 
 
+# Utility method to reset a combo box based on the keys it should display (to avoid code repetition)
 def reset_combo_box(cbx, keys):
+    # Clear the current items
     cbx.clearItems()
     if len(keys) > 0:
+        # Keys exist, therefore the combo box should be populated with them
         index = 0
         for key in keys:
             cbx.appendItem(text=key, sel=index)
@@ -427,14 +449,21 @@ def reset_combo_box(cbx, keys):
             cbx.setMaxVisible(len(keys))
             cbx.enable()
     else:
+        # Keys do not exist, therefore disable the combo box
         cbx.setMaxVisible(1)
         cbx.disable()
 
 
+# Utility method to check if the matcher repository is initialized
 def is_rep_initialized():
+    # Check if the custom data has the matchers initialized
     if hasattr(mdb.customData, 'matchers'):
+        # If the matchers attribute exists, it could be in an unpickled state, which we can detect
         matchers = mdb.customData.matchers
         try:
+            # If this is a fresh mdb on which the plugin has never been run,
+            # the RawPickledObjectProxy will not be loaded, which is why this
+            # needs to be encapsulated in a try except statement
             return not isinstance(matchers, kernelAccess.RawPickledObjectProxy)
         except Exception:
             return True
@@ -442,5 +471,6 @@ def is_rep_initialized():
         return False
 
 
+# Utility method to print a message to the console
 def debug_message(msg):
     abaqusGui.getAFXApp().getAFXMainWindow().writeToMessageArea(msg)
