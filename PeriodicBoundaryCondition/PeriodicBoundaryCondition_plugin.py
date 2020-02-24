@@ -9,59 +9,62 @@ from kernelAccess import mdb
 # The code is designed as such that the automatic issuing of commands by Abaqus is avoided.
 # The procedure will only loop through the inner step sequence (see the Abaqus GUI Toolkit User Manual 7.2.1)
 # Kernel commands are issued manually where necessary, and the procedure is exited when the user closes the GUI
-class Plugin(abaqusGui.AFXProcedure):
+class Plugin(abaqusGui.AFXForm):
     # Constants defining flags for the different steps
     STEP_OVERVIEW = 0
     STEP_NEW = 1
     STEP_CONFIRM = 2
-    STEP_CLOSE = 3
+    STEP_ERROR = 3
+    STEP_CLOSE = 4
 
     # An array holding the names of each step (useful for debugging)
-    STEPS = ['OVERVIEW', 'NEW', 'CONFIRM', 'CLOSE']
+    STEPS = ['OVERVIEW', 'NEW', 'CONFIRM', 'ERROR', 'CLOSE']
 
     def __init__(self, owner):
         # Call super constructor
-        abaqusGui.AFXProcedure.__init__(self, owner)
+        abaqusGui.AFXForm.__init__(self, owner)
         # Define step tracker
-        self.currentStep = self.STEP_OVERVIEW
+        self.next_step = self.STEP_OVERVIEW
+
+    def get_current_step(self):
+        return self.getCurrentDialog().get_step()
 
     # Getter for the next step
-    def get_next_step(self):
-        if self.currentStep == self.STEP_OVERVIEW:
-            return self.get_overview_step()
-        elif self.currentStep == self.STEP_NEW:
-            return self.get_input_step()
-        elif self.currentStep == self.STEP_CONFIRM:
-            return self.get_confirm_step()
+    def get_next_dialog(self):
+        if self.next_step == self.STEP_OVERVIEW:
+            return self.get_overview_dialog()
+        elif self.next_step == self.STEP_NEW:
+            return self.get_input_dialog()
+        elif self.next_step == self.STEP_CONFIRM:
+            return self.get_confirm_dialog()
         else:
             return None
 
     # Create the overview step
-    def get_overview_step(self):
-        return DialogStep('Overview', self,  PeriodicBoundaryCondition_DB.OverviewDialog(self))
+    def get_overview_dialog(self):
+        return PeriodicBoundaryCondition_DB.OverviewDialog(self, self.STEP_OVERVIEW)
 
     # Create the input step
-    def get_input_step(self):
-        return DialogStep('Input', self,  PeriodicBoundaryCondition_DB.InputDialog(self))
+    def get_input_dialog(self):
+        return PeriodicBoundaryCondition_DB.InputDialog(self, self.STEP_NEW)
 
     # Create a confirmation or error dialog after creating a new pbc
-    def get_confirm_step(self):
+    def get_confirm_dialog(self):
         # Fetch the feedback
         matcher = mdb.customData.matchers[self.getCurrentDialog().get_current_name()].get_matcher()
         valid = matcher.is_valid()
         lines = matcher.get_status_messages()
         # Construct dialog
         if valid:
-            dialog = PeriodicBoundaryCondition_DB.ConfirmDialog(self, self.getCurrentDialog().get_current_name(), lines)
+            name = self.getCurrentDialog().get_current_name()
+            return PeriodicBoundaryCondition_DB.ConfirmDialog(self, self.STEP_CONFIRM, name, lines)
         else:
-            dialog = PeriodicBoundaryCondition_DB.ErrorDialog(self, lines)
-        # Return the step
-        return DialogStep('Confirm', self, dialog)
+            return PeriodicBoundaryCondition_DB.ErrorDialog(self, self.STEP_ERROR, lines)
 
     # Issues the command to initialize the registry
     def issue_init(self):
         cmd = abaqusGui.AFXGuiCommand(mode=self, method='create_registry',
-                                                 objectName='PeriodicBoundaryCondition_kernel', registerQuery=True)
+                                      objectName='PeriodicBoundaryCondition_kernel', registerQuery=False)
         issue_command(cmd)
         # Return True indicating the command was issued
         return True
@@ -79,12 +82,14 @@ class Plugin(abaqusGui.AFXProcedure):
         else:
             # The name does not exist yet: issue the command
             cmd = abaqusGui.AFXGuiCommand(mode=self, method='match_nodes',
-                                          objectName='PeriodicBoundaryCondition_kernel', registerQuery=True)
+                                          objectName='PeriodicBoundaryCondition_kernel', registerQuery=False)
+            abaqusGui.AFXStringKeyword(cmd, 'name', True, name)
             abaqusGui.AFXIntKeyword(cmd, 'model', True, self.getCurrentDialog().currentModel, False)
             abaqusGui.AFXIntKeyword(cmd, 'part', True, self.getCurrentDialog().currentPart, False)
             abaqusGui.AFXIntKeyword(cmd, 'master', True, self.getCurrentDialog().currentMaster, False)
             abaqusGui.AFXIntKeyword(cmd, 'slave', True, self.getCurrentDialog().currentSlave, False)
-            abaqusGui.AFXStringKeyword(cmd, 'name', True, name)
+            abaqusGui.AFXIntKeyword(cmd, 'ex_m', True, self.getCurrentDialog().get_master_exempt_index())
+            abaqusGui.AFXIntKeyword(cmd, 'ex_s', True, self.getCurrentDialog().get_slave_exempt_index())
             abaqusGui.AFXIntKeyword(cmd, 'plane', True, self.getCurrentDialog().currentPlane, False)
             abaqusGui.AFXIntKeyword(cmd, 'sym', True, self.getCurrentDialog().currentSym, False)
             issue_command(cmd)
@@ -98,6 +103,8 @@ class Plugin(abaqusGui.AFXProcedure):
                                                 objectName='PeriodicBoundaryCondition_kernel')
         abaqusGui.AFXStringKeyword(cmd, 'name', True, self.getCurrentDialog().get_current_name())
         issue_command(cmd)
+        # Update the overview window
+        self.getCurrentDialog().update_boundaries()
         # Return True indicating the command was issued
         return True
 
@@ -120,95 +127,99 @@ class Plugin(abaqusGui.AFXProcedure):
     # Called when the mode is activated
     def activate(self):
         # Set first step
-        self.currentStep = self.STEP_OVERVIEW
+        self.next_step = self.STEP_OVERVIEW
         # Make sure the registry is initialized
         self.issue_init()
         # Call super method
-        abaqusGui.AFXProcedure.activate(self)
+        abaqusGui.AFXForm.activate(self)
 
     # Called when the mode is deactivated
     def deactivate(self):
         # Call super method
-        abaqusGui.AFXProcedure.deactivate(self)
+        abaqusGui.AFXForm.deactivate(self)
 
-    # Override from AFXProcedure to return the first step
-    def getFirstStep(self):
-        # simply forward to the general step selection method
-        return self.get_next_step()
+    # Override from AFXForm to return the first dialog
+    def getFirstDialog(self):
+        # simply forward to the general dialog selection method
+        return self.get_next_dialog()
 
-    # Override from AFXProcedure to return the next step in the inner step loop
-    def getNextStep(self, prev_step):
-        # simply forward to the general step selection method
-        return self.get_next_step()
+    # Override from AFXForm to return the next dialog in the inner step loop
+    def getNextDialog(self, prev):
+        # simply forward to the general dialog selection method
+        return self.get_next_dialog()
 
-    # Override from AFXProcedure to return the next step in the outer step loop
-    def getLoopStep(self):
-        # We should never get here, but if we do, we can simply end the procedure by returning nothing
-        return None
+    # Override from AFXForm to return the next dialog in the outer step loop
+    def getLoopDialog(self):
+        # simply forward to the general dialog selection method
+        return self.get_next_dialog()
 
-    # Override to verify the keyword values in the inner loop
+    # Override to verify the keyword values in the inner loop, return true to continue the code flow
     def verifyCurrentKeywordValues(self):
         # Return true to continue
         return True
 
-    # Override from AFXProcedure to perform custom checks, return true to continue the code flow
+    # Override from AFXForm to perform custom checks, return true to continue the code flow
     def doCustomChecks(self):
         # We will use this method to control what command is to be issued and what the next step is
         btn = self.getPressedButtonId()
-        if self.currentStep == self.STEP_OVERVIEW:
+        step = self.get_current_step()
+        if step == self.STEP_OVERVIEW:
             if btn == abaqusGui.AFXDialog.ID_CLICKED_APPLY:
                 # Apply button in overview dialog: remain in the overview and delete the currently selected constraint
-                self.currentStep = self.STEP_OVERVIEW
+                self.next_step = self.STEP_OVERVIEW
                 self.issue_remove()
-            elif btn == abaqusGui.AFXDialog.ID_CLICKED_OK:
-                # Ok button in overview dialog: remain in the overview and pair the currently selected constraint
-                self.currentStep = self.STEP_OVERVIEW
-                self.issue_pair()
             elif btn == abaqusGui.AFXDialog.ID_CLICKED_CONTINUE:
-                # Continue button in overview dialog: opens the new constraint dialog, but do not issue a command
-                self.currentStep = self.STEP_NEW
+                # Ok button in overview dialog: opens the new constraint dialog, but do not issue a command
+                self.next_step = self.STEP_NEW
+            elif btn == abaqusGui.AFXDialog.ID_CLICKED_OK:
+                # Continue button in overview dialog: remain in the overview and pair the currently selected constraint
+                self.next_step = self.STEP_OVERVIEW
+                self.issue_pair()
             elif btn == abaqusGui.AFXDialog.ID_CLICKED_CANCEL:
                 # Cancel button in overview dialog: close the dialog
                 pass
-        elif self.currentStep == self.STEP_NEW:
+        elif step == self.STEP_NEW:
             if btn == abaqusGui.AFXDialog.ID_CLICKED_CONTINUE:
                 # Apply button in overview dialog: show confirmation dialog and match nodes
                 if self.issue_match():
-                    self.currentStep = self.STEP_CONFIRM
+                    self.next_step = self.STEP_CONFIRM
                 else:
-                    self.currentStep = self.STEP_NEW
-            elif btn == abaqusGui.AFXDialog.ID_CLICKED_OK:
+                    self.next_step = self.STEP_NEW
+            elif btn == abaqusGui.AFXDialog.ID_CLICKED_CANCEL:
                 # Continue button in overview dialog: go back to the overview
-                self.currentStep = self.STEP_OVERVIEW
-        elif self.currentStep == self.STEP_CONFIRM:
+                self.next_step = self.STEP_OVERVIEW
+        elif step == self.STEP_CONFIRM:
             if btn == abaqusGui.AFXDialog.ID_CLICKED_CONTINUE:
                 # Apply button in confirm dialog: go back to the overview and pair nodes
                 self.issue_pair()
-                self.currentStep = self.STEP_OVERVIEW
+                self.next_step = self.STEP_OVERVIEW
             elif btn == abaqusGui.AFXDialog.ID_CLICKED_CANCEL:
                 # Continue button in confirm dialog: go back to the overview
-                self.currentStep = self.STEP_OVERVIEW
-        elif self.currentStep == self.STEP_CLOSE:
+                self.next_step = self.STEP_OVERVIEW
+        elif step == self.STEP_ERROR:
+            # Continue button in error dialog: go back to the overview
+            self.next_step = self.STEP_OVERVIEW
+        elif step == self.STEP_CLOSE:
             # Close the gui and do not issue a command
-            self.currentStep = self.STEP_CLOSE
+            self.next_step = self.STEP_CLOSE
         return True
 
-    # Override to verify the keyword values in the outer loop
+    # Override to verify the keyword values in the outer loop, return true to continue the code flow
     def verifyKeywordValues(self):
         # Return true to continue
         return True
 
-    # Override from AFXProcedure to perform custom tasks, return true to continue the code flow
+    # Override from AFXProcedure to perform custom tasks
     def doCustomTasks(self):
         pass
 
     # Override to prevent the automatic flow from issuing commands
     def issueCommands(self, writeToReplay, writeToJournal):
-        return
+        pass
 
     # Method override
     def okToCancel(self):
-        return self.currentStep == self.STEP_CLOSE or self.currentStep == self.STEP_OVERVIEW
+        return False
 
 
 # Utility method to issues a command to the kernel
@@ -221,7 +232,7 @@ def debug_message(msg):
     abaqusGui.getAFXApp().getAFXMainWindow().writeToMessageArea(msg)
 
 
-# Class override to allow for cleaner code (getters) and debugging
+# Step class override to allow for cleaner code (getters) and debugging
 class DialogStep(abaqusGui.AFXDialogStep):
     # Constructor
     def __init__(self, name, form, dialog):
@@ -244,22 +255,27 @@ class DialogStep(abaqusGui.AFXDialogStep):
 
     # Method override
     def onCancel(self):
+        # Call super method
         abaqusGui.AFXDialogStep.onCancel(self)
 
     # Method override
     def onDone(self):
+        # Call super method
         abaqusGui.AFXDialogStep.onDone(self)
 
     # Method override
     def onExecute(self):
+        # Call super method
         abaqusGui.AFXDialogStep.onExecute(self)
 
     # Method override
     def onResume(self):
+        # Call super method
         abaqusGui.AFXDialogStep.onResume(self)
 
     # Method override
     def onSuspend(self):
+        # Call super method
         abaqusGui.AFXDialogStep.onSuspend(self)
 
 
@@ -274,7 +290,7 @@ toolset.registerGuiMenuButton(
     icon=None,
     kernelInitString='import PeriodicBoundaryCondition_kernel',
     applicableModules=abaqusConstants.ALL,
-    version='1.0',
+    version='1.1',
     author='Xavier van Heule',
     description='A plugin to easily create periodic boundary conditions on 3D geometry',
     helpUrl='https://github.com/smrg-uob/PeriodicBoundaryCondition/blob/master/README.md'

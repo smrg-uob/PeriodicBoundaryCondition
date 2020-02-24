@@ -5,14 +5,12 @@ import customKernelSerialize
 
 # Makes sure the registry exists
 def create_registry():
-    debug_message('Creating registry')
     if hasattr(abaqus.mdb.customData, 'matchers'):
         # The repository exists, now make sure it is unpickled
         if isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject):
             # If the repository is in an unpickled state, we need to unpickle it manually
-            debug_message('Matcher repository has not been unpickled, unpickling manually')
-            # Unpickle the matchers
             import pickle
+            # Unpickle the matchers
             unpickled = pickle.loads(abaqus.mdb.customData.matchers.pickleString)
             # Delete the unpickled data
             del abaqus.mdb.customData.matchers
@@ -31,9 +29,8 @@ def create_registry():
 
 
 # Runs the script to match the nodes
-def match_nodes(name, model, part, master, slave, plane, sym):
-    debug_message('Matching nodes for ' + name)
-    # fetch matcher
+def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane, sym):
+    # Create a new matcher if one does not exist yet
     if not abaqus.mdb.customData.matchers.has_key(name):
         # Fetch objects and keys
         model_keys = abaqus.mdb.models.keys()
@@ -41,11 +38,14 @@ def match_nodes(name, model, part, master, slave, plane, sym):
         part_keys = model_obj.parts.keys()
         part_obj = model_obj.parts[part_keys[part]]
         surf_keys = part_obj.surfaces.keys()
+        set_keys = part_obj.sets.keys()
         # Create new matcher
-        matcher = NodeMatcher(name, model_keys[model], part_keys[part],
-                              surf_keys[master], surf_keys[slave], PLANES[plane], sym)
+        matcher = NodeMatcher(name, model_keys[model], part_keys[part], surf_keys[master], surf_keys[slave],
+                              '' if ex_m < 0 else set_keys[ex_m], '' if ex_s < 0 else set_keys[ex_s],
+                              PLANES[plane], sym)
         # Store the matcher in the custom data
         abaqus.mdb.customData.MatcherContainer(name, matcher)
+    # Fetch the matcher
     matcher = abaqus.mdb.customData.matchers[name].get_matcher()
     # Match the nodes if necessary
     if not matcher.is_matched():
@@ -54,27 +54,19 @@ def match_nodes(name, model, part, master, slave, plane, sym):
 
 # Runs the script to apply the constraints
 def apply_constraints(name):
-    debug_message('Pairing nodes for ' + name)
     # fetch matcher
     if abaqus.mdb.customData.matchers.has_key(name):
         matcher = abaqus.mdb.customData.matchers[name].get_matcher()
         matcher.apply_constraints()
-    else:
-        debug_message('No such constraint')
-        pass
 
 
 # Runs the script to remove the constraints
 def remove_constraints(name):
-    debug_message('Removing constraints for ' + name)
     # fetch matcher
     if abaqus.mdb.customData.matchers.has_key(name):
         matcher = abaqus.mdb.customData.matchers[name].get_matcher()
         matcher.delete_constraints()
         del abaqus.mdb.customData.matchers[name]
-    else:
-        debug_message('No such constraint')
-        pass
 
 
 # Wrapper class to store matchers in the mdb custom data, also helps with the manual unpickling
@@ -99,13 +91,15 @@ class MatcherContainer(customKernel.CommandRegister):
 
 # A helper class to match the master and slave nodes, and apply the constraint for periodic boundary conditions
 class NodeMatcher:
-    def __init__(self, name, model, part, master, slave, plane, sym):
+    def __init__(self, name, model, part, master, slave, ex_m, ex_s, plane, sym):
         # Set fields
         self.name = name
         self.modelName = model
         self.partName = part
         self.masterName = master
         self.slaveName = slave
+        self.masterExemptName = ex_m
+        self.slaveExemptName = ex_s
         self.plane = plane
         self.sym = sym
         # Define status flags
@@ -168,6 +162,18 @@ class NodeMatcher:
     def get_slave_surface(self):
         return self.get_part().surfaces[self.get_slave_name()]
 
+    # Fetches the master exempt Abaqus set (can be None)
+    def get_master_exempts(self):
+        if self.masterExemptName is '':
+            return None
+        return self.get_part().sets[self.masterExemptName]
+
+    # Fetches the slave exempt Abaqus set (can be None)
+    def get_slave_exempts(self):
+        if self.slaveExemptName is '':
+            return None
+        return self.get_part().sets[self.slaveExemptName]
+
     # Getter for the flag which tracks if the match configuration is valid
     def is_valid(self):
         return self.valid
@@ -180,11 +186,41 @@ class NodeMatcher:
     def is_paired(self):
         return self.paired
 
+    # Returns a list of all the nodes to consider for the master surface (takes into account the exemption)
+    def get_master_node_list(self):
+        # Fetch all nodes from the master surface
+        nodes_m = list(self.get_master_surface().nodes)
+        set_ex_m = self.get_master_exempts()
+        if set_ex_m is not None:
+            # Exclude the exempted nodes
+            for node in set_ex_m.nodes:
+                try:
+                    nodes_m.remove(node)
+                except ValueError:
+                    # Catch the exception, but don't do anything
+                    pass
+        return nodes_m
+
+    # Returns a list of all the nodes to consider for the slave surface (takes into account the exemption)
+    def get_slave_node_list(self):
+        # Fetch all nodes from the slave surface
+        nodes_s = list(self.get_slave_surface().nodes)
+        set_ex_s = self.get_slave_exempts()
+        if set_ex_s is not None:
+            # Exclude the exempted nodes
+            for node in set_ex_s.nodes:
+                try:
+                    nodes_s.remove(node)
+                except ValueError:
+                    # Catch the exception, but don't do anything
+                    pass
+        return nodes_s
+
     # Checks if the matching setup is valid before execution
     # (meaning the master and slaves contain an equal number of nodes)
     def check_validity(self):
-        nodes_m = self.get_master_surface().nodes
-        nodes_s = self.get_slave_surface().nodes
+        nodes_m = self.get_master_node_list()
+        nodes_s = self.get_slave_node_list()
         n_m = len(nodes_m)
         n_s = len(nodes_s)
         self.valid = n_m == n_s
@@ -198,8 +234,8 @@ class NodeMatcher:
             # reset the pairs
             self.pairs = set()
             # fetch nodes
-            nodes_m = self.get_master_surface().nodes
-            nodes_s = self.get_slave_surface().nodes
+            nodes_m = self.get_master_node_list()
+            nodes_s = self.get_slave_node_list()
             # Store unmatched master and slave nodes
             masters_unmatched = [None] * self.n
             slaves_unmatched = [None] * self.n
