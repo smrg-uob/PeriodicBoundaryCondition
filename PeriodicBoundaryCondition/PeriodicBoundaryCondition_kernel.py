@@ -5,13 +5,20 @@ import customKernelSerialize
 
 # Makes sure the registry exists
 def create_registry():
+    debug_message('Creating registry')
     if hasattr(abaqus.mdb.customData, 'matchers'):
+        debug_message('Found existing registry')
         # The repository exists, now make sure it is unpickled
-        if isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject):
+        if (isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject) or
+                isinstance(abaqus.mdb.customData.MatcherContainer, customKernelSerialize.RawPickledObject)):
+            debug_message('Existing registry is in an unpickled state, unpickling')
             # If the repository is in an unpickled state, we need to unpickle it manually
             import pickle
-            # Unpickle the matchers
-            unpickled = pickle.loads(abaqus.mdb.customData.matchers.pickleString)
+            # Unpickle the matchers if necessary
+            if isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject):
+                unpickled = pickle.loads(abaqus.mdb.customData.matchers.pickleString)
+            else:
+                unpickled = abaqus.mdb.customData.matchers
             # Delete the unpickled data
             del abaqus.mdb.customData.matchers
             del abaqus.mdb.customData.MatcherContainer
@@ -23,9 +30,32 @@ def create_registry():
                 container = unpickled[key]
                 # store the matcher in a new container in the registry
                 abaqus.mdb.customData.MatcherContainer(container.get_name(), container.get_matcher())
+        # Make sure the containers are unpickled as well
+        for key in abaqus.mdb.customData.matchers.keys():
+            container = abaqus.mdb.customData.matchers[key]
+            if isinstance(container, customKernelSerialize.RawPickledObject):
+                debug_message('Found a pickled container, unpickling')
+                # If the matcher is in an unpickled state, we need to unpickle it manually
+                import pickle
+                # Unpickle the container
+                unpickled = pickle.loads(container)
+                # Delete the container
+                del abaqus.mdb.customData.matchers[key]
+                # Store the unpickled matcher in the container
+                abaqus.mdb.customData.MatcherContainer(key, unpickled)
+                # Make sure the wrapped matcher is unpickled
+                matcher = unpickled.get_matcher()
+                if isinstance(matcher, customKernelSerialize.RawPickledObject):
+                    debug_message('Found a pickled matcher, unpickling')
+                    # Unpickle the matcher
+                    unpickled_matcher = pickle.loads(container)
+                    # Store the unpickled matcher
+                    unpickled.set_matcher(unpickled_matcher)
+        debug_message('Registry is unpickled')
     else:
         # The repository does not exist, initialize it
         abaqus.mdb.customData.Repository('matchers', MatcherContainer)
+        debug_message('Registry created')
 
 
 # Runs the script to match the nodes
@@ -87,6 +117,10 @@ class MatcherContainer(customKernel.CommandRegister):
     # Getter for the matcher
     def get_matcher(self):
         return self.matcher
+
+    # Setter for the matcher
+    def set_matcher(self, matcher):
+        self.matcher = matcher
 
 
 # A helper class to match the master and slave nodes, and apply the constraint for periodic boundary conditions
