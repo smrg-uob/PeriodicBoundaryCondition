@@ -340,7 +340,7 @@ class NodeMatcher:
 
     # Gets the average distance of the node pairs matched by proximity
     def get_av_proximity(self):
-        return self.tot / self.get_pair_count()
+        return 0 if self.get_proximity_count() is 0 else self.tot / self.get_proximity_count()
 
     # Applies the constraint for a periodic boundary condition to all paired nodes
     def apply_constraints(self):
