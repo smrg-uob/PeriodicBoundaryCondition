@@ -5,13 +5,10 @@ import customKernelSerialize
 
 # Makes sure the registry exists
 def create_registry():
-    debug_message('Creating registry')
     if hasattr(abaqus.mdb.customData, 'matchers'):
-        debug_message('Found existing registry')
         # The repository exists, now make sure it is unpickled
         if (isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject) or
                 isinstance(abaqus.mdb.customData.MatcherContainer, customKernelSerialize.RawPickledObject)):
-            debug_message('Existing registry is in an unpickled state, unpickling')
             # If the repository is in an unpickled state, we need to unpickle it manually
             import pickle
             # Unpickle the matchers if necessary
@@ -34,7 +31,6 @@ def create_registry():
         for key in abaqus.mdb.customData.matchers.keys():
             container = abaqus.mdb.customData.matchers[key]
             if isinstance(container, customKernelSerialize.RawPickledObject):
-                debug_message('Found a pickled container, unpickling')
                 # If the matcher is in an unpickled state, we need to unpickle it manually
                 import pickle
                 # Unpickle the container
@@ -46,16 +42,13 @@ def create_registry():
                 # Make sure the wrapped matcher is unpickled
                 matcher = unpickled.get_matcher()
                 if isinstance(matcher, customKernelSerialize.RawPickledObject):
-                    debug_message('Found a pickled matcher, unpickling')
                     # Unpickle the matcher
                     unpickled_matcher = pickle.loads(container)
                     # Store the unpickled matcher
                     unpickled.set_matcher(unpickled_matcher)
-        debug_message('Registry is unpickled')
     else:
         # The repository does not exist, initialize it
         abaqus.mdb.customData.Repository('matchers', MatcherContainer)
-        debug_message('Registry created')
 
 
 # Runs the script to match the nodes
