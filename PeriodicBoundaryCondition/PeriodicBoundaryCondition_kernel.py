@@ -42,7 +42,7 @@ def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane, sym):
         # Create new matcher
         matcher = NodeMatcher(name, model_keys[model], part_keys[part], surf_keys[master], surf_keys[slave],
                               '' if ex_m < 0 else set_keys[ex_m], '' if ex_s < 0 else set_keys[ex_s],
-                              PLANES[plane], sym)
+                              plane, sym)
         # Store the matcher in the custom data
         abaqus.mdb.customData.MatcherContainer(name, matcher)
     # Fetch the matcher
@@ -100,8 +100,8 @@ class NodeMatcher:
         self.slaveName = slave
         self.masterExemptName = ex_m
         self.slaveExemptName = ex_s
-        self.plane = plane
-        self.sym = sym
+        self.plane_index = plane
+        self.sym_index = sym
         # Define status flags
         self.valid = False
         self.matched = False
@@ -138,13 +138,17 @@ class NodeMatcher:
     def get_slave_name(self):
         return self.slaveName
 
-    # Getter for the match plane
-    def get_plane(self):
-        return self.plane
+    # Getter for the match plane index
+    def get_plane_index(self):
+        return self.plane_index
 
     # Getter for the symmetry index
-    def get_sym(self):
-        return self.sym
+    def get_sym_index(self):
+        return self.sym_index
+
+    # Fetches the match plane
+    def get_plane(self):
+        return PLANES[self.get_plane_index()]
 
     # Fetches the model Abaqus object
     def get_model(self):
@@ -251,7 +255,7 @@ class NodeMatcher:
                     continue
                 else:
                     # Exact matching node found, create a new node pair
-                    self.pairs.add(NodePair(master.label, slave.label, self.plane, len(self.pairs)))
+                    self.pairs.add(NodePair(master.label, slave.label, self.get_plane_index(), len(self.pairs)))
                     self.exact = self.exact + 1
                     # Remove the matched nodes from the unmatched set
                     masters_unmatched.remove(master)
@@ -263,9 +267,9 @@ class NodeMatcher:
                     # Find closest slave node
                     slave = self.find_closest_slave_node(master, slaves_unmatched)
                     # Create new pair and update the counters
-                    pair = NodePair(master.label, slave.label, self.plane, len(self.pairs))
+                    pair = NodePair(master.label, slave.label, self.get_plane_index(), len(self.pairs))
                     self.pairs.add(pair)
-                    dist = sqrt(self.plane.dist_sq(master, slave))
+                    dist = sqrt(self.get_plane().dist_sq(master, slave))
                     # Remove the matched nodes from the unmatched set
                     masters_unmatched.remove(master)
                     slaves_unmatched.remove(slave)
@@ -308,7 +312,7 @@ class NodeMatcher:
     def apply_constraints(self):
         if self.is_matched() and (not self.is_paired()):
             for pair in self.pairs:
-                pair.apply_constraint(self.get_model(), self.get_part(), self.name, self.sym)
+                pair.apply_constraint(self.get_model(), self.get_part(), self.name, self.sym_index)
             self.paired = True
 
     # Removes the constraint for a periodic boundary condition for all paired nodes
@@ -316,14 +320,14 @@ class NodeMatcher:
         if self.is_paired():
             for pair in self.pairs:
                 # Delete constraint
-                pair.remove_constraint(self.get_model(), self.name, self.sym)
+                pair.remove_constraint(self.get_model(), self.name, self.sym_index)
 
     # Finds the exact matching slave node from the unmatched nodes to a given master node
     # Returns None if no exact matching slave node is found
     def find_matching_slave_node(self, master, slaves):
         slave = None
         for node in slaves:
-            if self.plane.do_nodes_match(master, node):
+            if self.get_plane().do_nodes_match(master, node):
                 slave = node
                 break
         return slave
@@ -334,7 +338,7 @@ class NodeMatcher:
         dist = -1
         for node in slaves:
             # Calculate squared distance
-            new_dist = self.plane.dist_sq(master, node)
+            new_dist = self.get_plane().dist_sq(master, node)
             # If the distance is smaller than the current closest node, update both
             if (new_dist < dist) or (dist < 0):
                 slave = node
@@ -361,7 +365,7 @@ class NodePair:
     def __init__(self, m, s, plane, index):
         self.master_label = m
         self.slave_label = s
-        self.plane = plane
+        self.plane_index = plane
         self.index = index
 
     # Getter for the master label
@@ -372,14 +376,17 @@ class NodePair:
     def get_slave_label(self):
         return self.slave_label
 
+    def get_plane(self):
+        return PLANES[self.plane_index]
+
     # Applies the constraints and sets for a periodic boundary condition on the two nodes
     def apply_constraint(self, model, part, name, sym):
-        self.plane.apply_constraint(model, part, self.get_master_label(), self.get_slave_label(),
+        self.get_plane().apply_constraint(model, part, self.get_master_label(), self.get_slave_label(),
                                     'pbc_' + name + '_node_' + str(self.index), sym)
 
     # Removes the constraints and sets for the periodic boundary condition on the two nodes
     def remove_constraint(self, model, name, sym):
-        self.plane.remove_constraint(model, 'pbc_' + name + '_node_' + str(self.index), sym)
+        self.get_plane().remove_constraint(model, 'pbc_' + name + '_node_' + str(self.index), sym)
 
 
 # A class which represents a match plane

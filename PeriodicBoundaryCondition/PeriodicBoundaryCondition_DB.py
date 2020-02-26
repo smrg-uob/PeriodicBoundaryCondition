@@ -38,7 +38,8 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         frame_1 = abaqusGui.FXHorizontalFrame(p=self)
         # Child vertical frame 1
         frame_1_1 = abaqusGui.FXVerticalFrame(p=frame_1)
-        self.cbx_pbx = abaqusGui.AFXComboBox(p=frame_1_1, ncols=23, nvis=1, text='',
+        # Combo box to select the different PBCs
+        self.cbx_pbx = abaqusGui.AFXComboBox(p=frame_1_1, ncols=24, nvis=1, text='',
                                                tgt=self, sel=self.ID_PBC)
         # Add status text fields
         aligner = abaqusGui.AFXVerticalAligner(p=frame_1_1)
@@ -52,6 +53,10 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         self.txt_master.disable()
         self.txt_slave = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Slave:')
         self.txt_slave.disable()
+        self.txt_plane = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Plane:')
+        self.txt_plane.disable()
+        self.txt_sym = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Symmetry:')
+        self.txt_sym.disable()
         self.txt_pairs = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Pairs:')
         self.txt_pairs.disable()
         # Tracker for highlighted surfaces
@@ -91,6 +96,8 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
                     self.txt_paired.setText(str(matcher.is_paired()))
                     self.txt_master.setText(matcher.get_master_name())
                     self.txt_slave.setText(matcher.get_slave_name())
+                    self.txt_plane.setText(PLANES[matcher.get_plane_index()])
+                    self.txt_sym.setText(SYMMETRY[matcher.get_sym_index()])
                     self.txt_pairs.setText(str(matcher.get_pair_count()))
                     # highlight
                     self.highlight(matcher)
@@ -102,6 +109,8 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
             self.txt_paired.setText('N.A.')
             self.txt_master.setText('N.A.')
             self.txt_slave.setText('N.A.')
+            self.txt_plane.setText('N.A.')
+            self.txt_sym.setText('N.A.')
             self.txt_pairs.setText('N.A.')
         self.update_buttons()
 
@@ -288,15 +297,15 @@ class InputDialog(abaqusGui.AFXDataDialog):
         # Add combo box to select the plane
         self.cbx_plane = abaqusGui.AFXComboBox(p=aligner, ncols=widget_width, nvis=3, text='Match Plane',
                                                tgt=self, sel=self.ID_PLANE)
-        self.cbx_plane.appendItem(text='XY-plane', sel=0)
-        self.cbx_plane.appendItem(text='XZ-plane', sel=1)
-        self.cbx_plane.appendItem(text='YZ-plane', sel=2)
+        self.cbx_plane.appendItem(text=PLANES[0], sel=0)
+        self.cbx_plane.appendItem(text=PLANES[1], sel=1)
+        self.cbx_plane.appendItem(text=PLANES[2], sel=2)
         # Add combo box to select the symmetry
         self.cbx_sym = abaqusGui.AFXComboBox(p=aligner, ncols=widget_width, nvis=3, text='Symmetry',
                                              tgt=self, sel=self.ID_SYM)
-        self.cbx_sym.appendItem(text='Asymmetric', sel=0)
-        self.cbx_sym.appendItem(text='Symmetric', sel=1)
-        self.cbx_sym.appendItem(text='Ignore', sel=2)
+        self.cbx_sym.appendItem(text=SYMMETRY[0], sel=0)
+        self.cbx_sym.appendItem(text=SYMMETRY[1], sel=1)
+        self.cbx_sym.appendItem(text=SYMMETRY[2], sel=2)
         # Set currently selected items to -1 (to force an update on first opening of the GUI)
         self.currentModel = -1
         self.currentPart = -1
@@ -809,6 +818,11 @@ class PickHandler(abaqusGui.AFXProcedure):
         # Send a command to highlight the selected face
         if self.keyword.getValue() and self.keyword.getValue()[0] != '<':
             abaqusGui.sendCommand(self.keyword.getSetupCommands() + '\nhighlight(%s)' % self.keyword.getValue())
+
+
+# Arrays with the names of the match planes and symmetry options
+PLANES = ['XY-plane', 'XZ-plane', 'YZ-plane']
+SYMMETRY = ['Asymmetric', 'Symmetric', 'Ignore']
 
 
 # Utility method to print a message to the console
