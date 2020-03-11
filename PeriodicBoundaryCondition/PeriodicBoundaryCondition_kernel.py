@@ -134,7 +134,7 @@ class NodeMatcher:
         self.matched = False
         self.paired = False
         # Initialize pair sets
-        self.pairs = set()
+        self.pairs = list()
         # Initialize statistics
         self.number = 0
         self.exempts = 0
@@ -254,7 +254,7 @@ class NodeMatcher:
     def match_nodes(self):
         if self.is_valid() and (not self.is_matched()):
             # reset the pairs
-            self.pairs = set()
+            self.pairs = list()
             # fetch nodes
             nodes_m = self.get_master_node_list()
             nodes_s = self.get_slave_node_list()
@@ -283,10 +283,11 @@ class NodeMatcher:
                         excl = True
                     if excl:
                         self.exempts += 1
-                    # Exact matching node found, create a new node pair
-                    self.pairs.add(NodePair(self.get_name(), master.label, slave.label,
-                                            self.get_plane_index(), excl, len(self.pairs)))
-                    self.exact = self.exact + 1
+                    else:
+                        # Exact matching node found, create a new node pair
+                        self.pairs.append(NodePair(self.get_name(), master.label, slave.label,
+                                                   self.get_plane_index(), excl, len(self.pairs)))
+                        self.exact = self.exact + 1
                     # Remove the matched nodes from the unmatched set
                     masters_unmatched.remove(master)
                     slaves_unmatched.remove(slave)
@@ -304,23 +305,24 @@ class NodeMatcher:
                         excl = True
                     if excl:
                         self.exempts += 1
-                    # Create new pair and update the counters
-                    pair = NodePair(self.get_name(), master.label, slave.label,
-                                    self.get_plane_index(), excl, len(self.pairs))
-                    self.pairs.add(pair)
-                    dist = sqrt(self.get_plane().dist_sq(master, slave))
+                    else:
+                        # Create new pair and update the counters
+                        pair = NodePair(self.get_name(), master.label, slave.label,
+                                        self.get_plane_index(), excl, len(self.pairs))
+                        self.pairs.append(pair)
+                        dist = sqrt(self.get_plane().dist_sq(master, slave))
+                        # Update statistics
+                        if self.mn == 0:
+                            self.mn = dist
+                            self.mx = dist
+                            self.tot = dist
+                        else:
+                            self.mn = min(dist, self.mn)
+                            self.mx = max(dist, self.mx)
+                            self.tot = self.tot + dist
                     # Remove the matched nodes from the unmatched set
                     masters_unmatched.remove(master)
                     slaves_unmatched.remove(slave)
-                    # Update statistics
-                    if self.mn == 0:
-                        self.mn = dist
-                        self.mx = dist
-                        self.tot = dist
-                    else:
-                        self.mn = min(dist, self.mn)
-                        self.mx = max(dist, self.mx)
-                        self.tot = self.tot + dist
             self.matched = True
 
     # Gets the total number of node pairs
@@ -366,7 +368,8 @@ class NodeMatcher:
             index = 0
             # Node pair count
             n = self.get_pair_count()
-            for pair in self.pairs:
+            for pair_index in range(0, len(self.pairs)):
+                pair = self.pairs[pair_index]
                 # Increment the index
                 index += 1
                 # Do not apply the constraint in case of an exempted node pair
@@ -376,21 +379,23 @@ class NodeMatcher:
                 terms_i = list()
                 terms_j = list()
                 terms_k = list()
-                for pair_j in self.pairs:
-                    if pair_j.get_index() == index:
-                        terms_i.append(((n - 1.0), pair.get_master_set_name(), i))
-                        terms_i.append(((1.0 - n), pair.get_slave_set_name(), i))
-                        terms_j.append(((n - 1.0), pair.get_master_set_name(), j))
-                        terms_j.append(((1.0 - n), pair.get_slave_set_name(), j))
-                        terms_k.append(((n - 1.0), pair.get_master_set_name(), k))
-                        terms_k.append(((1.0 - n), pair.get_slave_set_name(), k))
-                    else:
-                        terms_i.append((-1.0, pair.get_master_set_name(), i))
-                        terms_i.append((1.0, pair.get_slave_set_name(), i))
-                        terms_j.append((-1.0, pair.get_master_set_name(), j))
-                        terms_j.append((1.0, pair.get_slave_set_name(), j))
-                        terms_k.append((-1.0, pair.get_master_set_name(), k))
-                        terms_k.append((1.0, pair.get_slave_set_name(), k))
+                # Add the terms for the own pair
+                terms_i.append((1.0, pair.get_master_set_name(), i))
+                terms_i.append((-1.0, pair.get_slave_set_name(), i))
+                terms_j.append((1.0, pair.get_master_set_name(), j))
+                terms_j.append((-1.0, pair.get_slave_set_name(), j))
+                terms_k.append((1.0, pair.get_master_set_name(), k))
+                terms_k.append((-1.0, pair.get_slave_set_name(), k))
+                # Add the terms for the next pair
+                next_index = pair_index + 1
+                if next_index < len(self.pairs):
+                    next_pair = self.pairs[next_index]
+                    terms_i.append((-1.0, next_pair.get_master_set_name(), i))
+                    terms_i.append((1.0, next_pair.get_slave_set_name(), i))
+                    terms_j.append((-1.0, next_pair.get_master_set_name(), j))
+                    terms_j.append((1.0, next_pair.get_slave_set_name(), j))
+                    terms_k.append((-1.0, next_pair.get_master_set_name(), k))
+                    terms_k.append((1.0, next_pair.get_slave_set_name(), k))
                 # Define the names
                 name_i = 'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()
                 name_j = 'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()
@@ -407,7 +412,7 @@ class NodeMatcher:
         if self.is_paired():
             for pair in self.pairs:
                 # Delete the sets
-                pair.remove_sets()
+                pair.remove_sets(self.get_model())
                 # Skip the removal of the equations in case of an exempted node pair as they will not exist
                 if pair.is_exempted():
                     continue
@@ -447,7 +452,8 @@ class NodeMatcher:
         msg = []
         if self.is_valid():
             msg.append('Exact matches: ' + str(self.get_exact_count()) + '/' + str(self.get_pair_count()) +
-                       ', Proximity matches: ' + str(self.get_proximity_count()) + '/' + str(self.get_pair_count()))
+                       ', Proximity matches: ' + str(self.get_proximity_count()) + '/' + str(self.get_pair_count()) +
+                       ', Exempts: ' + str(self.get_exempt_count()) + '/' + str(self.get_pair_count()))
             msg.append('From proximity matches: min = ' + str(self.get_min_proximity()) + ', max = ' +
                        str(self.get_max_proximity()) + ', avg = ' + str(self.get_av_proximity()))
         else:
