@@ -1,6 +1,7 @@
 import abaqus
 import customKernel
 import customKernelSerialize
+from math import sqrt
 
 
 # Makes sure the registry exists
@@ -53,7 +54,7 @@ def create_registry():
 
 
 # Runs the script to match the nodes
-def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane):
+def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane, mode):
     # Create a new matcher if one does not exist yet
     if not abaqus.mdb.customData.matchers.has_key(name):
         # Fetch objects and keys
@@ -66,7 +67,7 @@ def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane):
         # Create new matcher
         matcher = NodeMatcher(name, model_keys[model], part_keys[part], surf_keys[master], surf_keys[slave],
                               '' if ex_m < 0 else set_keys[ex_m], '' if ex_s < 0 else set_keys[ex_s],
-                              plane)
+                              plane, mode)
         # Store the matcher in the custom data
         abaqus.mdb.customData.MatcherContainer(name, matcher)
     # Fetch the matcher
@@ -119,7 +120,7 @@ class MatcherContainer(customKernel.CommandRegister):
 
 # A helper class to match the master and slave nodes, and apply the constraint for periodic boundary conditions
 class NodeMatcher:
-    def __init__(self, name, model, part, master, slave, ex_m, ex_s, plane):
+    def __init__(self, name, model, part, master, slave, ex_m, ex_s, plane, mode):
         # Set fields
         self.name = name
         self.modelName = model
@@ -129,6 +130,7 @@ class NodeMatcher:
         self.masterExemptName = ex_m
         self.slaveExemptName = ex_s
         self.plane_index = plane
+        self.mode_index = mode
         # Define status flags
         self.valid = False
         self.matched = False
@@ -169,6 +171,10 @@ class NodeMatcher:
     # Getter for the match plane index
     def get_plane_index(self):
         return self.plane_index
+
+    # Getter for the mode index
+    def get_mode_index(self):
+        return self.mode_index
 
     # Fetches the match plane
     def get_plane(self):
@@ -286,6 +292,7 @@ class NodeMatcher:
                     else:
                         # Exact matching node found, create a new node pair
                         self.pairs.append(NodePair(self.get_name(), master.label, slave.label,
+                                                   master.coordinates, slave.coordinates,
                                                    self.get_plane_index(), excl, len(self.pairs)))
                         self.exact = self.exact + 1
                     # Remove the matched nodes from the unmatched set
@@ -308,6 +315,7 @@ class NodeMatcher:
                     else:
                         # Create new pair and update the counters
                         pair = NodePair(self.get_name(), master.label, slave.label,
+                                        master.coordinates, slave.coordinates,
                                         self.get_plane_index(), excl, len(self.pairs))
                         self.pairs.append(pair)
                         dist = sqrt(self.get_plane().dist_sq(master, slave))
@@ -356,46 +364,30 @@ class NodeMatcher:
     # Applies the constraint for a periodic boundary condition to all paired nodes
     def apply_constraints(self):
         if self.is_matched() and (not self.is_paired()):
-            # Axis indices
-            i = self.get_plane().get_first_axis_index() + 1
-            j = self.get_plane().get_second_axis_index() + 1
-            k = self.get_plane().get_normal_axis_index() + 1
             # Define the sets for each node pair
             for pair in self.pairs:
                 # Create the sets
                 pair.create_sets(self.get_model(), self.get_part())
             # Add the constraints for the displacements
             index = 0
-            # Node pair count
-            n = self.get_pair_count()
             for pair_index in range(0, len(self.pairs)):
-                pair = self.pairs[pair_index]
                 # Increment the index
                 index += 1
+                # Fetch the pair
+                pair = self.pairs[pair_index]
                 # Do not apply the constraint in case of an exempted node pair
                 if pair.is_exempted():
                     continue
                 # Define the  terms
-                terms_i = list()
-                terms_j = list()
-                terms_k = list()
-                # Add the terms for the own pair
-                terms_i.append((1.0, pair.get_master_set_name(), i))
-                terms_i.append((-1.0, pair.get_slave_set_name(), i))
-                terms_j.append((1.0, pair.get_master_set_name(), j))
-                terms_j.append((-1.0, pair.get_slave_set_name(), j))
-                terms_k.append((1.0, pair.get_master_set_name(), k))
-                terms_k.append((-1.0, pair.get_slave_set_name(), k))
-                # Add the terms for the next pair
-                next_index = pair_index + 1
-                if next_index < len(self.pairs):
-                    next_pair = self.pairs[next_index]
-                    terms_i.append((-1.0, next_pair.get_master_set_name(), i))
-                    terms_i.append((1.0, next_pair.get_slave_set_name(), i))
-                    terms_j.append((-1.0, next_pair.get_master_set_name(), j))
-                    terms_j.append((1.0, next_pair.get_slave_set_name(), j))
-                    terms_k.append((-1.0, next_pair.get_master_set_name(), k))
-                    terms_k.append((1.0, next_pair.get_slave_set_name(), k))
+                if self.get_mode_index() == 0:
+                    terms_i = self.define_translational_terms(pair_index, self.get_plane().get_first_axis_index() + 1)
+                    terms_j = self.define_translational_terms(pair_index, self.get_plane().get_second_axis_index() + 1)
+                    terms_k = self.define_translational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1)
+                else:
+                    a = self.get_plane().get_normal_axis_index() + 1
+                    terms_i = self.define_rotational_terms(pair_index, self.get_plane().get_first_axis_index() + 1, a)
+                    terms_j = self.define_rotational_terms(pair_index, self.get_plane().get_second_axis_index() + 1, a)
+                    terms_k = self.define_rotational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1, a)
                 # Define the names
                 name_i = 'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()
                 name_j = 'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()
@@ -406,6 +398,105 @@ class NodeMatcher:
                 self.get_model().Equation(name=name_k, terms=terms_k)
             # Update paired status
             self.paired = True
+
+    def define_translational_terms(self, pair_index, axis_index):
+        # Fetch the pair
+        pair = self.pairs[pair_index]
+        # Define list
+        terms = list()
+        # Add the terms for the own pair
+        terms.append((1.0, pair.get_master_set_name(), axis_index))
+        terms.append((-1.0, pair.get_slave_set_name(), axis_index))
+        # Add the terms for the next pair
+        next_index = pair_index + 1
+        if next_index < len(self.pairs):
+            next_pair = self.pairs[next_index]
+            terms.append((-1.0, next_pair.get_master_set_name(), axis_index))
+            terms.append((1.0, next_pair.get_slave_set_name(), axis_index))
+        return terms
+
+    def define_rotational_terms(self, pair_index, axis_index, axial_index):
+        # Define list
+        if axis_index == axial_index:
+            # In case of the axial direction, the translational constraints can be used
+            return self.define_translational_terms(pair_index, axis_index)
+        else:
+            if axial_index == 3:
+                # The XY-plane is the polar plane
+                if axis_index == 1:
+                    # return the radial terms
+                    return self.define_radial_terms(pair_index, 0, 1)
+                else:
+                    # return the hoop terms
+                    return self.define_hoop_terms(pair_index, 0, 1)
+            elif axial_index == 2:
+                # The XZ-plane is the polar plane
+                if axis_index == 1:
+                    # return the radial terms
+                    return self.define_radial_terms(pair_index, 0, 2)
+                else:
+                    # return the hoop terms
+                    return self.define_hoop_terms(pair_index, 0, 2)
+            else:
+                # The YZ-plane is the polar plane
+                if axis_index == 2:
+                    # return the radial terms
+                    return self.define_radial_terms(pair_index, 1, 2)
+                else:
+                    # return the hoop terms
+                    return self.define_hoop_terms(pair_index, 1, 2)
+
+    def define_radial_terms(self, pair_index, radial_index, hoop_index):
+        # Fetch the pair
+        pair = self.pairs[pair_index]
+        # Define master cosine and sine
+        c_m = pair.get_master_coordinates()
+        cs_m = c_m[radial_index] / sqrt(c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
+        sn_m = c_m[hoop_index] / sqrt(c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
+        # Define slave cosine and sine (can differ slightly in case the pair is not an exact match)
+        c_s = pair.get_slave_coordinates()
+        cs_s = c_s[radial_index] / sqrt(c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
+        sn_s = c_s[hoop_index] / sqrt(c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
+        # Define list
+        terms = list()
+        terms.append((cs_m, pair.get_master_set_name(), radial_index + 1))
+        terms.append((-cs_s, pair.get_slave_set_name(), radial_index + 1))
+        terms.append((sn_m, pair.get_master_set_name(), hoop_index + 1))
+        terms.append((-sn_s, pair.get_slave_set_name(), hoop_index + 1))
+        # Return the therms
+        return terms
+
+    def define_hoop_terms(self, pair_index, radial_index, hoop_index):
+        # Fetch the pair
+        pair = self.pairs[pair_index]
+        # Define list
+        terms = list()
+        # Add the terms for the own pair
+        self.add_hoop_terms(terms, pair, radial_index, hoop_index, False)
+        # Add the terms for the next pair
+        next_index = pair_index + 1
+        if next_index < len(self.pairs):
+            next_pair = self.pairs[next_index]
+            self.add_hoop_terms(terms, next_pair, radial_index, hoop_index, True)
+        # Return the terms
+        return terms
+
+    @staticmethod
+    def add_hoop_terms(terms, pair, radial_index, hoop_index, inverse):
+        # Define master cosine and sine (no need for a square root in the denominator due to the 1/r multiplication
+        c_m = pair.get_master_coordinates()
+        cs_m = c_m[radial_index] / (c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
+        sn_m = c_m[hoop_index] / (c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
+        # Define slave cosine and sine (can differ slightly in case the pair is not an exact match)
+        c_s = pair.get_slave_coordinates()
+        cs_s = c_s[radial_index] / (c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
+        sn_s = c_s[hoop_index] / (c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
+        # Append to the list
+        f = -1 if inverse else 1
+        terms.append((-1*f*sn_m, pair.get_master_set_name(), radial_index + 1))
+        terms.append((f*sn_s, pair.get_slave_set_name(), radial_index + 1))
+        terms.append((f*cs_m, pair.get_master_set_name(), hoop_index + 1))
+        terms.append((-1*f*cs_s, pair.get_slave_set_name(), hoop_index + 1))
 
     # Removes the constraint for a periodic boundary condition for all paired nodes
     def delete_constraints(self):
@@ -465,10 +556,12 @@ class NodeMatcher:
 # A pointer to the matching plane is stored as well
 class NodePair:
     # Constructor
-    def __init__(self, name, m, s, plane, exempted, index):
+    def __init__(self, name, m, s, c_m, c_s, plane, exempted, index):
         self.name = 'pbc_' + name + '_node_' + str(index)
         self.master_label = m
         self.slave_label = s
+        self.master_coordinates = c_m
+        self.slave_coordinates = c_s
         self.plane_index = plane
         self.exempted = exempted
         self.index = index
@@ -484,6 +577,14 @@ class NodePair:
     # Getter for the slave label
     def get_slave_label(self):
         return self.slave_label
+
+    # Getter for the coordinates of the master node
+    def get_master_coordinates(self):
+        return self.master_coordinates
+
+    # Getter for the coordinates of the slave node
+    def get_slave_coordinates(self):
+        return self.slave_coordinates
 
     # Checks if this node pair is exempted from the pbc
     def is_exempted(self):

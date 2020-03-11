@@ -55,6 +55,8 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         self.txt_slave.disable()
         self.txt_plane = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Plane:')
         self.txt_plane.disable()
+        self.txt_mode = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Mode:')
+        self.txt_mode.disable()
         self.txt_pairs = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Pairs:')
         self.txt_pairs.disable()
         self.txt_exempts = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Exempts:')
@@ -97,6 +99,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
                     self.txt_master.setText(matcher.get_master_name())
                     self.txt_slave.setText(matcher.get_slave_name())
                     self.txt_plane.setText(PLANES[matcher.get_plane_index()])
+                    self.txt_mode.setText(MODES[matcher.get_mode_index()])
                     self.txt_pairs.setText(str(matcher.get_pair_count()))
                     self.txt_exempts.setText(str(matcher.get_exempt_count()))
                     # highlight
@@ -110,6 +113,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
             self.txt_master.setText('N.A.')
             self.txt_slave.setText('N.A.')
             self.txt_plane.setText('N.A.')
+            self.txt_mode.setText('N.A.')
             self.txt_pairs.setText('N.A.')
             self.txt_exempts.setText('N.A.')
         self.update_buttons()
@@ -207,8 +211,9 @@ class InputDialog(abaqusGui.AFXDataDialog):
         ID_EX_SLAVE,
         ID_USE_EX_SLAVE,
         ID_NAME,
-        ID_PLANE
-    ] = range(abaqusGui.AFXToolsetGui.ID_LAST, abaqusGui.AFXToolsetGui.ID_LAST+10)
+        ID_PLANE,
+        ID_MODE
+    ] = range(abaqusGui.AFXToolsetGui.ID_LAST, abaqusGui.AFXToolsetGui.ID_LAST+11)
 
     # constructor
     def __init__(self, form, step):
@@ -230,6 +235,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
         abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_EX_SLAVE, InputDialog.on_message)
         abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_USE_EX_SLAVE, InputDialog.on_message)
         abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_PLANE, InputDialog.on_message)
+        abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_MODE, InputDialog.on_message)
         # Configure the ok button
         ok_btn = self.getActionButton(self.ID_CLICKED_CONTINUE)
         ok_btn.disable()
@@ -298,6 +304,11 @@ class InputDialog(abaqusGui.AFXDataDialog):
         self.cbx_plane.appendItem(text=PLANES[0], sel=0)
         self.cbx_plane.appendItem(text=PLANES[1], sel=1)
         self.cbx_plane.appendItem(text=PLANES[2], sel=2)
+        # Add combo box to select the mode
+        self.cbx_mode = abaqusGui.AFXComboBox(p=aligner, ncols=widget_width, nvis=2, text='Mode',
+                                              tgt=self, sel=self.ID_MODE)
+        self.cbx_mode.appendItem(text=MODES[0], sel=0)
+        self.cbx_mode.appendItem(text=MODES[1], sel=1)
         # Set currently selected items to -1 (to force an update on first opening of the GUI)
         self.currentModel = -1
         self.currentPart = -1
@@ -307,6 +318,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
         self.currentSExempt = -1
         self.currentName = ''
         self.currentPlane = -1
+        self.currentMode = -1
         # Define highlighted sets
         self.highlight_m = ''
         self.highlight_s = ''
@@ -315,6 +327,7 @@ class InputDialog(abaqusGui.AFXDataDialog):
         # Force initial updates
         self.on_model_selected()
         self.on_plane_selected()
+        self.on_mode_selected()
 
     # Method to get the step associated with the current dialog
     def get_step(self):
@@ -345,6 +358,8 @@ class InputDialog(abaqusGui.AFXDataDialog):
             self.on_slave_exempt_toggled()
         elif abaqusGui.SELID(sel) == self.ID_PLANE:
             self.on_plane_selected()
+        elif abaqusGui.SELID(sel) == self.ID_MODE:
+            self.on_mode_selected()
 
     def get_selected_model(self):
         count = self.cbx_model.getNumItems()
@@ -584,6 +599,10 @@ class InputDialog(abaqusGui.AFXDataDialog):
     def on_plane_selected(self):
         self.currentPlane = self.cbx_plane.getItemData(self.cbx_plane.getCurrentItem())
 
+    # callback method for when the user selects a new mode
+    def on_mode_selected(self):
+        self.currentMode = self.cbx_mode.getItemData(self.cbx_mode.getCurrentItem())
+
     # method to update the state of the create button based on the current user inputs
     def update_action_button_state(self):
         m = self.cbx_master.getNumItems()
@@ -804,8 +823,9 @@ class PickHandler(abaqusGui.AFXProcedure):
             abaqusGui.sendCommand(self.keyword.getSetupCommands() + '\nhighlight(%s)' % self.keyword.getValue())
 
 
-# Arrays with the names of the match planes options
+# Arrays with the names of the match planes and mode options
 PLANES = ['XY-plane', 'XZ-plane', 'YZ-plane']
+MODES = ['Translational', 'Rotational']
 
 
 # Utility method to print a message to the console
