@@ -55,10 +55,10 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         self.txt_slave.disable()
         self.txt_plane = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Plane:')
         self.txt_plane.disable()
-        self.txt_sym = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Symmetry:')
-        self.txt_sym.disable()
         self.txt_pairs = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Pairs:')
         self.txt_pairs.disable()
+        self.txt_exempts = abaqusGui.AFXTextField(p=aligner, ncols=15, labelText='Exempts:')
+        self.txt_exempts.disable()
         # Tracker for highlighted surfaces
         self.hl_m = ''
         self.hl_s = ''
@@ -97,8 +97,8 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
                     self.txt_master.setText(matcher.get_master_name())
                     self.txt_slave.setText(matcher.get_slave_name())
                     self.txt_plane.setText(PLANES[matcher.get_plane_index()])
-                    self.txt_sym.setText(SYMMETRY[matcher.get_sym_index()])
                     self.txt_pairs.setText(str(matcher.get_pair_count()))
+                    self.txt_exempts.setText(str(matcher.get_exempt_count()))
                     # highlight
                     self.highlight(matcher)
                 else:
@@ -110,8 +110,8 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
             self.txt_master.setText('N.A.')
             self.txt_slave.setText('N.A.')
             self.txt_plane.setText('N.A.')
-            self.txt_sym.setText('N.A.')
             self.txt_pairs.setText('N.A.')
+            self.txt_exempts.setText('N.A.')
         self.update_buttons()
 
     # method which can be called to force an update of the matcher combo box
@@ -194,7 +194,7 @@ class OverviewDialog(abaqusGui.AFXDataDialog):
         abaqusGui.AFXDataDialog.hide(self)
 
 
-# Class for the plugin GUI
+# Class for the new pbc dialog
 class InputDialog(abaqusGui.AFXDataDialog):
     # id values, useful for commands between widgets
     [
@@ -207,9 +207,8 @@ class InputDialog(abaqusGui.AFXDataDialog):
         ID_EX_SLAVE,
         ID_USE_EX_SLAVE,
         ID_NAME,
-        ID_PLANE,
-        ID_SYM
-    ] = range(abaqusGui.AFXToolsetGui.ID_LAST, abaqusGui.AFXToolsetGui.ID_LAST+11)
+        ID_PLANE
+    ] = range(abaqusGui.AFXToolsetGui.ID_LAST, abaqusGui.AFXToolsetGui.ID_LAST+10)
 
     # constructor
     def __init__(self, form, step):
@@ -231,7 +230,6 @@ class InputDialog(abaqusGui.AFXDataDialog):
         abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_EX_SLAVE, InputDialog.on_message)
         abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_USE_EX_SLAVE, InputDialog.on_message)
         abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_PLANE, InputDialog.on_message)
-        abaqusGui.FXMAPFUNC(self, abaqusGui.SEL_COMMAND, self.ID_SYM, InputDialog.on_message)
         # Configure the ok button
         ok_btn = self.getActionButton(self.ID_CLICKED_CONTINUE)
         ok_btn.disable()
@@ -300,12 +298,6 @@ class InputDialog(abaqusGui.AFXDataDialog):
         self.cbx_plane.appendItem(text=PLANES[0], sel=0)
         self.cbx_plane.appendItem(text=PLANES[1], sel=1)
         self.cbx_plane.appendItem(text=PLANES[2], sel=2)
-        # Add combo box to select the symmetry
-        self.cbx_sym = abaqusGui.AFXComboBox(p=aligner, ncols=widget_width, nvis=3, text='Symmetry',
-                                             tgt=self, sel=self.ID_SYM)
-        self.cbx_sym.appendItem(text=SYMMETRY[0], sel=0)
-        self.cbx_sym.appendItem(text=SYMMETRY[1], sel=1)
-        self.cbx_sym.appendItem(text=SYMMETRY[2], sel=2)
         # Set currently selected items to -1 (to force an update on first opening of the GUI)
         self.currentModel = -1
         self.currentPart = -1
@@ -315,7 +307,6 @@ class InputDialog(abaqusGui.AFXDataDialog):
         self.currentSExempt = -1
         self.currentName = ''
         self.currentPlane = -1
-        self.currentSym = - 1
         # Define highlighted sets
         self.highlight_m = ''
         self.highlight_s = ''
@@ -324,7 +315,6 @@ class InputDialog(abaqusGui.AFXDataDialog):
         # Force initial updates
         self.on_model_selected()
         self.on_plane_selected()
-        self.on_sym_selected()
 
     # Method to get the step associated with the current dialog
     def get_step(self):
@@ -355,8 +345,6 @@ class InputDialog(abaqusGui.AFXDataDialog):
             self.on_slave_exempt_toggled()
         elif abaqusGui.SELID(sel) == self.ID_PLANE:
             self.on_plane_selected()
-        elif abaqusGui.SELID(sel) == self.ID_SYM:
-            self.on_sym_selected()
 
     def get_selected_model(self):
         count = self.cbx_model.getNumItems()
@@ -596,10 +584,6 @@ class InputDialog(abaqusGui.AFXDataDialog):
     def on_plane_selected(self):
         self.currentPlane = self.cbx_plane.getItemData(self.cbx_plane.getCurrentItem())
 
-    # callback method for when the user selects a new symmetry setting
-    def on_sym_selected(self):
-        self.currentSym = self.cbx_sym.getItemData(self.cbx_sym.getCurrentItem())
-
     # method to update the state of the create button based on the current user inputs
     def update_action_button_state(self):
         m = self.cbx_master.getNumItems()
@@ -820,9 +804,8 @@ class PickHandler(abaqusGui.AFXProcedure):
             abaqusGui.sendCommand(self.keyword.getSetupCommands() + '\nhighlight(%s)' % self.keyword.getValue())
 
 
-# Arrays with the names of the match planes and symmetry options
+# Arrays with the names of the match planes options
 PLANES = ['XY-plane', 'XZ-plane', 'YZ-plane']
-SYMMETRY = ['Asymmetric', 'Symmetric', 'Ignore']
 
 
 # Utility method to print a message to the console

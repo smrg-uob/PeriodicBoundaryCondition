@@ -91,7 +91,6 @@ class Plugin(abaqusGui.AFXForm):
             abaqusGui.AFXIntKeyword(cmd, 'ex_m', True, self.getCurrentDialog().get_master_exempt_index())
             abaqusGui.AFXIntKeyword(cmd, 'ex_s', True, self.getCurrentDialog().get_slave_exempt_index())
             abaqusGui.AFXIntKeyword(cmd, 'plane', True, self.getCurrentDialog().currentPlane, False)
-            abaqusGui.AFXIntKeyword(cmd, 'sym', True, self.getCurrentDialog().currentSym, False)
             issue_command(cmd)
             # Return True indicating the command was issued
             return True

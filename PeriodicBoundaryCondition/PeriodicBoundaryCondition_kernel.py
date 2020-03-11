@@ -34,25 +34,26 @@ def create_registry():
                 # If the matcher is in an unpickled state, we need to unpickle it manually
                 import pickle
                 # Unpickle the container
-                unpickled = pickle.loads(container)
+                container = pickle.loads(container)
                 # Delete the container
                 del abaqus.mdb.customData.matchers[key]
                 # Store the unpickled matcher in the container
-                abaqus.mdb.customData.MatcherContainer(key, unpickled)
-                # Make sure the wrapped matcher is unpickled
-                matcher = unpickled.get_matcher()
-                if isinstance(matcher, customKernelSerialize.RawPickledObject):
-                    # Unpickle the matcher
-                    unpickled_matcher = pickle.loads(container)
-                    # Store the unpickled matcher
-                    unpickled.set_matcher(unpickled_matcher)
+                abaqus.mdb.customData.MatcherContainer(key, container)
+            # Make sure the wrapped matcher is unpickled as well
+            matcher = container.get_matcher()
+            if isinstance(matcher, customKernelSerialize.RawPickledObject):
+                import pickle
+                # Unpickle the matcher
+                unpickled_matcher = pickle.loads(matcher)
+                # Store the unpickled matcher
+                container.set_matcher(unpickled_matcher)
     else:
         # The repository does not exist, initialize it
         abaqus.mdb.customData.Repository('matchers', MatcherContainer)
 
 
 # Runs the script to match the nodes
-def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane, sym):
+def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane):
     # Create a new matcher if one does not exist yet
     if not abaqus.mdb.customData.matchers.has_key(name):
         # Fetch objects and keys
@@ -65,7 +66,7 @@ def match_nodes(name, model, part, master, slave, ex_m, ex_s, plane, sym):
         # Create new matcher
         matcher = NodeMatcher(name, model_keys[model], part_keys[part], surf_keys[master], surf_keys[slave],
                               '' if ex_m < 0 else set_keys[ex_m], '' if ex_s < 0 else set_keys[ex_s],
-                              plane, sym)
+                              plane)
         # Store the matcher in the custom data
         abaqus.mdb.customData.MatcherContainer(name, matcher)
     # Fetch the matcher
@@ -118,7 +119,7 @@ class MatcherContainer(customKernel.CommandRegister):
 
 # A helper class to match the master and slave nodes, and apply the constraint for periodic boundary conditions
 class NodeMatcher:
-    def __init__(self, name, model, part, master, slave, ex_m, ex_s, plane, sym):
+    def __init__(self, name, model, part, master, slave, ex_m, ex_s, plane):
         # Set fields
         self.name = name
         self.modelName = model
@@ -128,15 +129,15 @@ class NodeMatcher:
         self.masterExemptName = ex_m
         self.slaveExemptName = ex_s
         self.plane_index = plane
-        self.sym_index = sym
         # Define status flags
         self.valid = False
         self.matched = False
         self.paired = False
-        # Initialize pair set
+        # Initialize pair sets
         self.pairs = set()
         # Initialize statistics
-        self.n = 0
+        self.number = 0
+        self.exempts = 0
         self.exact = 0
         self.prox = 0
         self.mn = 0
@@ -168,10 +169,6 @@ class NodeMatcher:
     # Getter for the match plane index
     def get_plane_index(self):
         return self.plane_index
-
-    # Getter for the symmetry index
-    def get_sym_index(self):
-        return self.sym_index
 
     # Fetches the match plane
     def get_plane(self):
@@ -217,35 +214,29 @@ class NodeMatcher:
     def is_paired(self):
         return self.paired
 
-    # Returns a list of all the nodes to consider for the master surface (takes into account the exemption)
+    # Returns a list of all the nodes to consider for the master surface (ignores the exemption)
     def get_master_node_list(self):
         # Fetch all nodes from the master surface
-        nodes_m = list(self.get_master_surface().nodes)
-        set_ex_m = self.get_master_exempts()
-        if set_ex_m is not None:
-            # Exclude the exempted nodes
-            for node in set_ex_m.nodes:
-                try:
-                    nodes_m.remove(node)
-                except ValueError:
-                    # Catch the exception, but don't do anything
-                    pass
-        return nodes_m
+        return list(self.get_master_surface().nodes)
 
-    # Returns a list of all the nodes to consider for the slave surface (takes into account the exemption)
+    # Returns a list of all the nodes to consider for the slave surface (ignores the exemption)
     def get_slave_node_list(self):
         # Fetch all nodes from the slave surface
-        nodes_s = list(self.get_slave_surface().nodes)
+        return list(self.get_slave_surface().nodes)
+
+    # Returns a list of all the exempted master nodes
+    def get_master_exempt_list(self):
+        set_ex_m = self.get_master_exempts()
+        if set_ex_m is None:
+            return list()
+        return list(set_ex_m.nodes)
+
+    # Returns a set of all the exempted slave nodes
+    def get_slave_exempt_list(self):
         set_ex_s = self.get_slave_exempts()
-        if set_ex_s is not None:
-            # Exclude the exempted nodes
-            for node in set_ex_s.nodes:
-                try:
-                    nodes_s.remove(node)
-                except ValueError:
-                    # Catch the exception, but don't do anything
-                    pass
-        return nodes_s
+        if set_ex_s is None:
+            return list()
+        return list(set_ex_s.nodes)
 
     # Checks if the matching setup is valid before execution
     # (meaning the master and slaves contain an equal number of nodes)
@@ -257,7 +248,7 @@ class NodeMatcher:
         self.valid = n_m == n_s
         # Keep track of total number of nodes
         if self.is_valid():
-            self.n = len(nodes_m)
+            self.number = len(nodes_m)
 
     # Uniquely matches each of the master nodes to a slave node
     def match_nodes(self):
@@ -267,10 +258,13 @@ class NodeMatcher:
             # fetch nodes
             nodes_m = self.get_master_node_list()
             nodes_s = self.get_slave_node_list()
+            # fetch exempts
+            exempts_m = self.get_master_exempt_list()
+            exempts_s = self.get_slave_exempt_list()
             # Store unmatched master and slave nodes
-            masters_unmatched = [None] * self.n
-            slaves_unmatched = [None] * self.n
-            for i in range(0, self.n):
+            masters_unmatched = [None] * self.number
+            slaves_unmatched = [None] * self.number
+            for i in range(0, self.number):
                 masters_unmatched[i] = nodes_m[i]
                 slaves_unmatched[i] = nodes_s[i]
             # First match all nodes whose coordinates match exactly
@@ -281,8 +275,17 @@ class NodeMatcher:
                     self.prox = self.prox + 1
                     continue
                 else:
+                    # Check for exemption
+                    excl = False
+                    if master in exempts_m:
+                        excl = True
+                    if slave in exempts_s:
+                        excl = True
+                    if excl:
+                        self.exempts += 1
                     # Exact matching node found, create a new node pair
-                    self.pairs.add(NodePair(master.label, slave.label, self.get_plane_index(), len(self.pairs)))
+                    self.pairs.add(NodePair(self.get_name(), master.label, slave.label,
+                                            self.get_plane_index(), excl, len(self.pairs)))
                     self.exact = self.exact + 1
                     # Remove the matched nodes from the unmatched set
                     masters_unmatched.remove(master)
@@ -293,8 +296,17 @@ class NodeMatcher:
                 for master in list(masters_unmatched):  # iterate over a copy since we will be removing entries
                     # Find closest slave node
                     slave = self.find_closest_slave_node(master, slaves_unmatched)
+                    # Check for exemption
+                    excl = False
+                    if master in exempts_m:
+                        excl = True
+                    if slave in exempts_s:
+                        excl = True
+                    if excl:
+                        self.exempts += 1
                     # Create new pair and update the counters
-                    pair = NodePair(master.label, slave.label, self.get_plane_index(), len(self.pairs))
+                    pair = NodePair(self.get_name(), master.label, slave.label,
+                                    self.get_plane_index(), excl, len(self.pairs))
                     self.pairs.add(pair)
                     dist = sqrt(self.get_plane().dist_sq(master, slave))
                     # Remove the matched nodes from the unmatched set
@@ -313,7 +325,11 @@ class NodeMatcher:
 
     # Gets the total number of node pairs
     def get_pair_count(self):
-        return self.n
+        return self.number
+
+    # Gets the total number of exempted node pairs
+    def get_exempt_count(self):
+        return self.exempts
 
     # Gets the number of node pairs which were exactly matched
     def get_exact_count(self):
@@ -338,16 +354,70 @@ class NodeMatcher:
     # Applies the constraint for a periodic boundary condition to all paired nodes
     def apply_constraints(self):
         if self.is_matched() and (not self.is_paired()):
+            # Axis indices
+            i = self.get_plane().get_first_axis_index() + 1
+            j = self.get_plane().get_second_axis_index() + 1
+            k = self.get_plane().get_normal_axis_index() + 1
+            # Define the sets for each node pair
             for pair in self.pairs:
-                pair.apply_constraint(self.get_model(), self.get_part(), self.name, self.sym_index)
+                # Create the sets
+                pair.create_sets(self.get_model(), self.get_part())
+            # Add the constraints for the displacements
+            index = 0
+            # Node pair count
+            n = self.get_pair_count()
+            for pair in self.pairs:
+                # Increment the index
+                index += 1
+                # Do not apply the constraint in case of an exempted node pair
+                if pair.is_exempted():
+                    continue
+                # Define the  terms
+                terms_i = list()
+                terms_j = list()
+                terms_k = list()
+                for pair_j in self.pairs:
+                    if pair_j.get_index() == index:
+                        terms_i.append(((n - 1.0), pair.get_master_set_name(), i))
+                        terms_i.append(((1.0 - n), pair.get_slave_set_name(), i))
+                        terms_j.append(((n - 1.0), pair.get_master_set_name(), j))
+                        terms_j.append(((1.0 - n), pair.get_slave_set_name(), j))
+                        terms_k.append(((n - 1.0), pair.get_master_set_name(), k))
+                        terms_k.append(((1.0 - n), pair.get_slave_set_name(), k))
+                    else:
+                        terms_i.append((-1.0, pair.get_master_set_name(), i))
+                        terms_i.append((1.0, pair.get_slave_set_name(), i))
+                        terms_j.append((-1.0, pair.get_master_set_name(), j))
+                        terms_j.append((1.0, pair.get_slave_set_name(), j))
+                        terms_k.append((-1.0, pair.get_master_set_name(), k))
+                        terms_k.append((1.0, pair.get_slave_set_name(), k))
+                # Define the names
+                name_i = 'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()
+                name_j = 'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()
+                name_k = 'eq_' + AXES[self.get_plane().get_normal_axis_index()] + '_' + pair.get_name()
+                # Add the equations
+                self.get_model().Equation(name=name_i, terms=terms_i)
+                self.get_model().Equation(name=name_j, terms=terms_j)
+                self.get_model().Equation(name=name_k, terms=terms_k)
+            # Update paired status
             self.paired = True
 
     # Removes the constraint for a periodic boundary condition for all paired nodes
     def delete_constraints(self):
         if self.is_paired():
             for pair in self.pairs:
-                # Delete constraint
-                pair.remove_constraint(self.get_model(), self.name, self.sym_index)
+                # Delete the sets
+                pair.remove_sets()
+                # Skip the removal of the equations in case of an exempted node pair as they will not exist
+                if pair.is_exempted():
+                    continue
+                # Delete the equations
+                del self.get_model().constraints[
+                    'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()]
+                del self.get_model().constraints[
+                    'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()]
+                del self.get_model().constraints[
+                    'eq_' + AXES[self.get_plane().get_normal_axis_index()] + '_' + pair.get_name()]
 
     # Finds the exact matching slave node from the unmatched nodes to a given master node
     # Returns None if no exact matching slave node is found
@@ -389,11 +459,17 @@ class NodeMatcher:
 # A pointer to the matching plane is stored as well
 class NodePair:
     # Constructor
-    def __init__(self, m, s, plane, index):
+    def __init__(self, name, m, s, plane, exempted, index):
+        self.name = 'pbc_' + name + '_node_' + str(index)
         self.master_label = m
         self.slave_label = s
         self.plane_index = plane
+        self.exempted = exempted
         self.index = index
+
+    # Getter for the name of the pair
+    def get_name(self):
+        return self.name
 
     # Getter for the master label
     def get_master_label(self):
@@ -403,17 +479,44 @@ class NodePair:
     def get_slave_label(self):
         return self.slave_label
 
+    # Checks if this node pair is exempted from the pbc
+    def is_exempted(self):
+        return self.exempted
+
+    # Getter for the index
+    def get_index(self):
+        return self.index
+
+    # Getter for the match plane
     def get_plane(self):
         return PLANES[self.plane_index]
 
-    # Applies the constraints and sets for a periodic boundary condition on the two nodes
-    def apply_constraint(self, model, part, name, sym):
-        self.get_plane().apply_constraint(model, part, self.get_master_label(), self.get_slave_label(),
-                                    'pbc_' + name + '_node_' + str(self.index), sym)
+    # Creates the name for the set for the master node
+    def get_master_set_name(self):
+        return self.get_name() + '_master'
 
-    # Removes the constraints and sets for the periodic boundary condition on the two nodes
-    def remove_constraint(self, model, name, sym):
-        self.get_plane().remove_constraint(model, 'pbc_' + name + '_node_' + str(self.index), sym)
+    # Creates the name for the set for the slave node
+    def get_slave_set_name(self):
+        return self.get_name() + '_slave'
+
+    # Creates the sets for the master and slave nodes
+    def create_sets(self, model, part):
+        # Set for the master node
+        set_master = self.get_master_set_name()
+        master_label = self.get_master_label()
+        nodes_master = model.rootAssembly.instances[part.name + '-1'].nodes.sequenceFromLabels((master_label,))
+        model.rootAssembly.Set(name=set_master, nodes=nodes_master)
+        # Set for the slave node
+        set_slave = self.get_slave_set_name()
+        slave_label = self.get_slave_label()
+        nodes_slave = model.rootAssembly.instances[part.name + '-1'].nodes.sequenceFromLabels((slave_label,))
+        model.rootAssembly.Set(name=set_slave, nodes=nodes_slave)
+
+    # Removes the sets for the master and slave nodes
+    def remove_sets(self, model):
+        # Delete the sets
+        del model.rootAssembly.sets[self.get_master_set_name()]
+        del model.rootAssembly.sets[self.get_slave_set_name()]
 
 
 # A class which represents a match plane
@@ -424,8 +527,17 @@ class NodePair:
 class MatchPlane:
     # Constructor
     def __init__(self, i, j):
-        self.i = i
-        self.j = j
+        self.i = min(i, j)
+        self.j = max(i, j)
+
+    def get_first_axis_index(self):
+        return self.i
+
+    def get_second_axis_index(self):
+        return self.j
+
+    def get_normal_axis_index(self):
+        return 3 - self.i - self.j
 
     # Checks if nodes match, meaning the in-plane coordinates are equal
     def do_nodes_match(self, n1, n2):
@@ -440,48 +552,6 @@ class MatchPlane:
         d_i = c1[self.i] - c2[self.i]
         d_j = c1[self.j] - c2[self.j]
         return d_i * d_i + d_j * d_j
-
-    # Creates the sets and constraints for a periodic boundary condition between two nodes
-    def apply_constraint(self, model, part, master_label, slave_label, name, sym):
-        # Define the sets
-        set_master = name + '_master'
-        nodes_master = model.rootAssembly.instances[part.name + '-1'].nodes.sequenceFromLabels((master_label,))
-        model.rootAssembly.Set(name=set_master, nodes=nodes_master)
-        set_slave = name + '_slave'
-        nodes_slave = model.rootAssembly.instances[part.name + '-1'].nodes.sequenceFromLabels((slave_label,))
-        model.rootAssembly.Set(name=set_slave, nodes=nodes_slave)
-        # Add the constraints for the in plane displacements
-        axes = ['x', 'y', 'z']
-        model.Equation(name='eq_' + axes[self.i] + '_' + name,
-                       terms=((1.0, set_master, self.i + 1), (-1.0, set_slave, self.i + 1)))
-        model.Equation(name='eq_' + axes[self.j] + '_' + name,
-                       terms=((1.0, set_master, self.j + 1), (-1.0, set_slave, self.j + 1)))
-        # Add the constraint for the normal displacement
-        k = 3 - self.i - self.j
-        if sym == 0:
-            # Asymmetric
-            model.Equation(name='eq_' + axes[k] + '_' + name,
-                           terms=((1.0, set_master, k + 1), (-1.0, set_slave, k + 1)))
-        elif sym == 1:
-            # Symmetric
-            model.Equation(name='eq_' + axes[k] + '_' + name,
-                           terms=((1.0, set_master, k + 1), (1.0, set_slave, k + 1)))
-        else:
-            # Ignore
-            return
-
-    # Deletes the sets and constraints for a periodic boundary condition between two nodes
-    def remove_constraint(self, model, name, sym):
-        # Delete the constraints
-        axes = ['x', 'y', 'z']
-        del model.constraints['eq_' + axes[self.i] + '_' + name]
-        del model.constraints['eq_' + axes[self.j] + '_' + name]
-        if sym == 0 or sym == 1:
-            k = 3 - self.i - self.j
-            del model.constraints['eq_' + axes[k] + '_' + name]
-        # Delete the sets
-        del model.rootAssembly.sets[name + '_master']
-        del model.rootAssembly.sets[name + '_slave']
 
 
 # Utility method to print a message to the console
@@ -501,3 +571,7 @@ def inspect_object(obj):
 
 # Static array of the three possible match planes
 PLANES = (MatchPlane(0, 1), MatchPlane(0, 2), MatchPlane(1, 2))
+
+
+# Static array of the axis labels
+AXES = ['x', 'y', 'z']
