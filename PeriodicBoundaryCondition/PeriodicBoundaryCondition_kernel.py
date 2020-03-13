@@ -384,6 +384,8 @@ class NodeMatcher:
                     terms_j = self.define_translational_terms(pair_index, self.get_plane().get_second_axis_index() + 1)
                     terms_k = self.define_translational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1)
                 else:
+                    # TODO: This approach makes Abaqus over constrain the model, therefore a cylindrical coordinate
+                    #  system should be introduced and used instead
                     a = self.get_plane().get_normal_axis_index() + 1
                     terms_i = self.define_rotational_terms(pair_index, self.get_plane().get_first_axis_index() + 1, a)
                     terms_j = self.define_rotational_terms(pair_index, self.get_plane().get_second_axis_index() + 1, a)
@@ -393,26 +395,31 @@ class NodeMatcher:
                 name_j = 'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()
                 name_k = 'eq_' + AXES[self.get_plane().get_normal_axis_index()] + '_' + pair.get_name()
                 # Add the equations
-                self.get_model().Equation(name=name_i, terms=terms_i)
-                self.get_model().Equation(name=name_j, terms=terms_j)
-                self.get_model().Equation(name=name_k, terms=terms_k)
+                if len(terms_i) > 0:
+                    self.get_model().Equation(name=name_i, terms=terms_i)
+                if len(terms_j) > 0:
+                    self.get_model().Equation(name=name_j, terms=terms_j)
+                if len(terms_k) > 0:
+                    self.get_model().Equation(name=name_k, terms=terms_k)
             # Update paired status
             self.paired = True
 
     def define_translational_terms(self, pair_index, axis_index):
-        # Fetch the pair
-        pair = self.pairs[pair_index]
         # Define list
         terms = list()
-        # Add the terms for the own pair
-        terms.append((1.0, pair.get_master_set_name(), axis_index))
-        terms.append((-1.0, pair.get_slave_set_name(), axis_index))
-        # Add the terms for the next pair
         next_index = pair_index + 1
+        # Do not add constraints to the last node
         if next_index < len(self.pairs):
+            # Fetch the pair
+            pair = self.pairs[pair_index]
+            # Add the terms for the own pair
+            terms.append((1.0, pair.get_master_set_name(), axis_index))
+            terms.append((-1.0, pair.get_slave_set_name(), axis_index))
+            # Add the terms for the next pair
             next_pair = self.pairs[next_index]
             terms.append((-1.0, next_pair.get_master_set_name(), axis_index))
             terms.append((1.0, next_pair.get_slave_set_name(), axis_index))
+        # Return the terms
         return terms
 
     def define_rotational_terms(self, pair_index, axis_index, axial_index):
@@ -463,19 +470,19 @@ class NodeMatcher:
         terms.append((-cs_s, pair.get_slave_set_name(), radial_index + 1))
         terms.append((sn_m, pair.get_master_set_name(), hoop_index + 1))
         terms.append((-sn_s, pair.get_slave_set_name(), hoop_index + 1))
-        # Return the therms
+        # Return the terms
         return terms
 
     def define_hoop_terms(self, pair_index, radial_index, hoop_index):
-        # Fetch the pair
-        pair = self.pairs[pair_index]
         # Define list
         terms = list()
-        # Add the terms for the own pair
-        self.add_hoop_terms(terms, pair, radial_index, hoop_index, False)
-        # Add the terms for the next pair
         next_index = pair_index + 1
+        # Do not constrain the last node
         if next_index < len(self.pairs):
+            # Add the terms for the own pair
+            pair = self.pairs[pair_index]
+            self.add_hoop_terms(terms, pair, radial_index, hoop_index, False)
+            # Add the terms for the next pair
             next_pair = self.pairs[next_index]
             self.add_hoop_terms(terms, next_pair, radial_index, hoop_index, True)
         # Return the terms
@@ -508,12 +515,15 @@ class NodeMatcher:
                 if pair.is_exempted():
                     continue
                 # Delete the equations
-                del self.get_model().constraints[
+                try: del self.get_model().constraints[
                     'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()]
-                del self.get_model().constraints[
+                except KeyError: pass
+                try: del self.get_model().constraints[
                     'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()]
-                del self.get_model().constraints[
+                except KeyError: pass
+                try: del self.get_model().constraints[
                     'eq_' + AXES[self.get_plane().get_normal_axis_index()] + '_' + pair.get_name()]
+                except KeyError: pass
 
     # Finds the exact matching slave node from the unmatched nodes to a given master node
     # Returns None if no exact matching slave node is found
