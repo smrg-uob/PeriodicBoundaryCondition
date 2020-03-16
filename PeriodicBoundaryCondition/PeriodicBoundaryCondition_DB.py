@@ -825,7 +825,7 @@ class PickHandler(abaqusGui.AFXProcedure):
 
 # Arrays with the names of the match planes and mode options
 PLANES = ['XY-plane', 'XZ-plane', 'YZ-plane']
-MODES = ['Translational', 'Rotational']
+MODES = ['Translational', 'Axial']
 
 
 # Utility method to print a message to the console

@@ -387,9 +387,9 @@ class NodeMatcher:
                     # TODO: This approach makes Abaqus over constrain the model, therefore a cylindrical coordinate
                     #  system should be introduced and used instead
                     a = self.get_plane().get_normal_axis_index() + 1
-                    terms_i = self.define_rotational_terms(pair_index, self.get_plane().get_first_axis_index() + 1, a)
-                    terms_j = self.define_rotational_terms(pair_index, self.get_plane().get_second_axis_index() + 1, a)
-                    terms_k = self.define_rotational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1, a)
+                    terms_i = self.define_axial_terms(pair_index, self.get_plane().get_first_axis_index() + 1, a)
+                    terms_j = self.define_axial_terms(pair_index, self.get_plane().get_second_axis_index() + 1, a)
+                    terms_k = self.define_axial_terms(pair_index, self.get_plane().get_normal_axis_index() + 1, a)
                 # Define the names
                 name_i = 'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()
                 name_j = 'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()
@@ -422,7 +422,7 @@ class NodeMatcher:
         # Return the terms
         return terms
 
-    def define_rotational_terms(self, pair_index, axis_index, axial_index):
+    def define_axial_terms(self, pair_index, axis_index, axial_index):
         # Define list
         if axis_index == axial_index:
             # In case of the axial direction, the translational constraints can be used
