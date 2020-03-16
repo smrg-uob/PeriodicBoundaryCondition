@@ -7,6 +7,7 @@ from math import sqrt
 
 # Makes sure the registry exists
 def create_registry():
+    # Check if the repository exists or not
     if hasattr(abaqus.mdb.customData, 'matchers'):
         # The repository exists, now make sure it is unpickled
         if (isinstance(abaqus.mdb.customData.matchers, customKernelSerialize.RawPickledObject) or
@@ -301,7 +302,6 @@ class NodeMatcher:
                     slaves_unmatched.remove(slave)
             # Second, match the remaining nodes with the closest node
             if self.prox > 0:
-                from math import sqrt
                 for master in list(masters_unmatched):  # iterate over a copy since we will be removing entries
                     # Find closest slave node
                     slave = self.find_closest_slave_node(master, slaves_unmatched)
@@ -369,18 +369,15 @@ class NodeMatcher:
             for pair in self.pairs:
                 # Create the sets
                 pair.create_sets(self.get_model(), self.get_part())
-            # Add the constraints for the displacements
+            # Define a running index
             index = 0
-            datum_id = 0
+            # Define the datum ID (-1 means no datum should be used, and the global coordinate system will be used)
+            datum_id = -1
+            # For axial periodic boundary conditions, a cylindrical coordinate system needs to be defined and used
             if self.get_mode_index() == 1:
-                # Create a cylindrical coordinate system
-                datum_name = 'CSYS_PBC_' + self.get_name()
-                datum = self.get_model().rootAssembly.DatumCsysByThreePoints(coordSysType=abaqusConstants.CYLINDRICAL,
-                                                                     origin=(0, 0, 0), point1=(1, 0, 0),
-                                                                     point2=(0, 1, 0,),
-                                                                     name=datum_name)
-                # Find the id of the new coordinate system
-                datum_id = datum.id
+                # Create a cylindrical coordinate system and store its id
+                datum_id = self.get_plane().create_cylindrical_datum('CSYS_PBC_' + self.get_name(), self.get_model()).id
+            # Add the constraints for the displacements
             for pair_index in range(0, len(self.pairs)):
                 # Increment the index
                 index += 1
@@ -392,11 +389,11 @@ class NodeMatcher:
                 # Define the  terms
                 if self.get_mode_index() == 0:
                     terms_i = self.define_translational_terms(pair_index, self.get_plane().get_first_axis_index() + 1,
-                                                              -1)
+                                                              datum_id)
                     terms_j = self.define_translational_terms(pair_index, self.get_plane().get_second_axis_index() + 1,
-                                                              -1)
+                                                              datum_id)
                     terms_k = self.define_translational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1,
-                                                              -1)
+                                                              datum_id)
                 else:
                     axis_index = self.get_plane().get_normal_axis_index() + 1
                     terms_i = self.define_axial_terms(pair_index, self.get_plane().get_first_axis_index() + 1,
@@ -419,6 +416,7 @@ class NodeMatcher:
             # Update paired status
             self.paired = True
 
+    # Defines the terms for a translational constraint: (u_i - u'_i) - (u_j - u'_j)  = 0
     def define_translational_terms(self, pair_index, axis_index, datum_id):
         # Define list
         terms = list()
@@ -445,12 +443,13 @@ class NodeMatcher:
         # Return the terms
         return terms
 
+    # Defines the terms for an axial constraint:
     def define_axial_terms(self, pair_index, axis_index, axial_index, datum_id):
-        # Define list
         if axis_index == axial_index:
             # In case of the axial direction, the translational constraints can be used
             return self.define_translational_terms(pair_index, axis_index, datum_id)
         else:
+            # For the radial and hoop directions, specific constraints need to be applied
             if axial_index == 3:
                 # The XY-plane is the polar plane
                 if axis_index == 1:
@@ -476,6 +475,7 @@ class NodeMatcher:
                     # return the hoop terms
                     return self.define_hoop_terms(pair_index, 1, 2, datum_id)
 
+    # Defines the terms for a radial constraint: (u_i - u'_i) = 0
     def define_radial_terms(self, pair_index, radial_index, hoop_index, datum_id):
         # Fetch the pair
         pair = self.pairs[pair_index]
@@ -486,6 +486,7 @@ class NodeMatcher:
         # Return the terms
         return terms
 
+    # Defines the terms for a hoop constraint: (u_i - u'_i)/r_i - (u_j - u'_j)/r_j = 0
     def define_hoop_terms(self, pair_index, radial_index, hoop_index, datum_id):
         # Define list
         terms = list()
@@ -503,10 +504,10 @@ class NodeMatcher:
 
     @staticmethod
     def add_hoop_terms(terms, pair, radial_index, hoop_index, inverse, datum_id):
-        # Define master cosine and sine (no need for a square root in the denominator due to the 1/r multiplication
+        # Define master radius
         c_m = pair.get_master_coordinates()
         r_m = sqrt(c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
-        # Define slave cosine and sine (can differ slightly in case the pair is not an exact match)
+        # Define slave radius (can differ slightly in case the pair is not an exact match)
         c_s = pair.get_slave_coordinates()
         r_s = sqrt(c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
         # Append to the list
@@ -518,7 +519,7 @@ class NodeMatcher:
     def delete_constraints(self):
         if self.is_paired():
             if self.get_mode_index() == 1:
-                # Delete a cylindrical coordinate system
+                # Delete the cylindrical coordinate system
                 try:
                     datum_name = 'CSYS_PBC_' + self.get_name()
                     del self.get_model().rootAssembly.features[datum_name]
@@ -531,15 +532,21 @@ class NodeMatcher:
                 if pair.is_exempted():
                     continue
                 # Delete the equations
-                try: del self.get_model().constraints[
-                    'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()]
-                except KeyError: pass
-                try: del self.get_model().constraints[
-                    'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()]
-                except KeyError: pass
-                try: del self.get_model().constraints[
-                    'eq_' + AXES[self.get_plane().get_normal_axis_index()] + '_' + pair.get_name()]
-                except KeyError: pass
+                try:
+                    del self.get_model().constraints[
+                        'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()]
+                except KeyError:
+                    pass
+                try:
+                    del self.get_model().constraints[
+                        'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()]
+                except KeyError:
+                    pass
+                try:
+                    del self.get_model().constraints[
+                        'eq_' + AXES[self.get_plane().get_normal_axis_index()] + '_' + pair.get_name()]
+                except KeyError:
+                    pass
 
     # Finds the exact matching slave node from the unmatched nodes to a given master node
     # Returns None if no exact matching slave node is found
@@ -678,13 +685,29 @@ class MatchPlane:
         c2 = n2.coordinates
         return (c1[self.i] == c2[self.i]) and (c1[self.j] == c2[self.j])
 
-    # Calculates the  in-plane distance between two nodes
+    # Calculates the square of the in-plane distance between two nodes
     def dist_sq(self, n1, n2):
         c1 = n1.coordinates
         c2 = n2.coordinates
         d_i = c1[self.i] - c2[self.i]
         d_j = c1[self.j] - c2[self.j]
         return d_i * d_i + d_j * d_j
+
+    # Creates and returns a cylindrical coordinate system datum
+    def create_cylindrical_datum(self, name, model):
+        normal = self.get_normal_axis_index()
+        if normal == 0:
+            # X axis is the axial direction
+            return model.rootAssembly.DatumCsysByThreePoints(coordSysType=abaqusConstants.CYLINDRICAL, origin=(0, 0, 0),
+                                                             point1=(0, 1, 0), point2=(0, 0, 1), name=name)
+        elif normal == 1:
+            # Y axis is the axial direction
+            return model.rootAssembly.DatumCsysByThreePoints(coordSysType=abaqusConstants.CYLINDRICAL, origin=(0, 0, 0),
+                                                             point1=(1, 0, 0), point2=(0, 0, 1), name=name)
+        else:
+            # Z axis is the axial direction
+            return model.rootAssembly.DatumCsysByThreePoints(coordSysType=abaqusConstants.CYLINDRICAL, origin=(0, 0, 0),
+                                                             point1=(1, 0, 0), point2=(0, 1, 0), name=name)
 
 
 # Utility method to print a message to the console
