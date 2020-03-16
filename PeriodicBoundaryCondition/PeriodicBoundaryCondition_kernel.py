@@ -1,4 +1,5 @@
 import abaqus
+import abaqusConstants
 import customKernel
 import customKernelSerialize
 from math import sqrt
@@ -370,6 +371,16 @@ class NodeMatcher:
                 pair.create_sets(self.get_model(), self.get_part())
             # Add the constraints for the displacements
             index = 0
+            datum_id = 0
+            if self.get_mode_index() == 1:
+                # Create a cylindrical coordinate system
+                datum_name = 'CSYS_PBC_' + self.get_name()
+                datum = self.get_model().rootAssembly.DatumCsysByThreePoints(coordSysType=abaqusConstants.CYLINDRICAL,
+                                                                     origin=(0, 0, 0), point1=(1, 0, 0),
+                                                                     point2=(0, 1, 0,),
+                                                                     name=datum_name)
+                # Find the id of the new coordinate system
+                datum_id = datum.id
             for pair_index in range(0, len(self.pairs)):
                 # Increment the index
                 index += 1
@@ -380,16 +391,20 @@ class NodeMatcher:
                     continue
                 # Define the  terms
                 if self.get_mode_index() == 0:
-                    terms_i = self.define_translational_terms(pair_index, self.get_plane().get_first_axis_index() + 1)
-                    terms_j = self.define_translational_terms(pair_index, self.get_plane().get_second_axis_index() + 1)
-                    terms_k = self.define_translational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1)
+                    terms_i = self.define_translational_terms(pair_index, self.get_plane().get_first_axis_index() + 1,
+                                                              -1)
+                    terms_j = self.define_translational_terms(pair_index, self.get_plane().get_second_axis_index() + 1,
+                                                              -1)
+                    terms_k = self.define_translational_terms(pair_index, self.get_plane().get_normal_axis_index() + 1,
+                                                              -1)
                 else:
-                    # TODO: This approach makes Abaqus over constrain the model, therefore a cylindrical coordinate
-                    #  system should be introduced and used instead
-                    a = self.get_plane().get_normal_axis_index() + 1
-                    terms_i = self.define_axial_terms(pair_index, self.get_plane().get_first_axis_index() + 1, a)
-                    terms_j = self.define_axial_terms(pair_index, self.get_plane().get_second_axis_index() + 1, a)
-                    terms_k = self.define_axial_terms(pair_index, self.get_plane().get_normal_axis_index() + 1, a)
+                    axis_index = self.get_plane().get_normal_axis_index() + 1
+                    terms_i = self.define_axial_terms(pair_index, self.get_plane().get_first_axis_index() + 1,
+                                                      axis_index, datum_id)
+                    terms_j = self.define_axial_terms(pair_index, self.get_plane().get_second_axis_index() + 1,
+                                                      axis_index, datum_id)
+                    terms_k = self.define_axial_terms(pair_index, self.get_plane().get_normal_axis_index() + 1,
+                                                      axis_index, datum_id)
                 # Define the names
                 name_i = 'eq_' + AXES[self.get_plane().get_first_axis_index()] + '_' + pair.get_name()
                 name_j = 'eq_' + AXES[self.get_plane().get_second_axis_index()] + '_' + pair.get_name()
@@ -404,7 +419,7 @@ class NodeMatcher:
             # Update paired status
             self.paired = True
 
-    def define_translational_terms(self, pair_index, axis_index):
+    def define_translational_terms(self, pair_index, axis_index, datum_id):
         # Define list
         terms = list()
         next_index = pair_index + 1
@@ -413,67 +428,65 @@ class NodeMatcher:
             # Fetch the pair
             pair = self.pairs[pair_index]
             # Add the terms for the own pair
-            terms.append((1.0, pair.get_master_set_name(), axis_index))
-            terms.append((-1.0, pair.get_slave_set_name(), axis_index))
+            if datum_id < 0:
+                terms.append((1.0, pair.get_master_set_name(), axis_index))
+                terms.append((-1.0, pair.get_slave_set_name(), axis_index))
+            else:
+                terms.append((1.0, pair.get_master_set_name(), axis_index, datum_id))
+                terms.append((-1.0, pair.get_slave_set_name(), axis_index, datum_id))
             # Add the terms for the next pair
             next_pair = self.pairs[next_index]
-            terms.append((-1.0, next_pair.get_master_set_name(), axis_index))
-            terms.append((1.0, next_pair.get_slave_set_name(), axis_index))
+            if datum_id < 0:
+                terms.append((-1.0, next_pair.get_master_set_name(), axis_index))
+                terms.append((1.0, next_pair.get_slave_set_name(), axis_index))
+            else:
+                terms.append((-1.0, next_pair.get_master_set_name(), axis_index, datum_id))
+                terms.append((1.0, next_pair.get_slave_set_name(), axis_index, datum_id))
         # Return the terms
         return terms
 
-    def define_axial_terms(self, pair_index, axis_index, axial_index):
+    def define_axial_terms(self, pair_index, axis_index, axial_index, datum_id):
         # Define list
         if axis_index == axial_index:
             # In case of the axial direction, the translational constraints can be used
-            return self.define_translational_terms(pair_index, axis_index)
+            return self.define_translational_terms(pair_index, axis_index, datum_id)
         else:
             if axial_index == 3:
                 # The XY-plane is the polar plane
                 if axis_index == 1:
                     # return the radial terms
-                    return self.define_radial_terms(pair_index, 0, 1)
+                    return self.define_radial_terms(pair_index, 0, 1, datum_id)
                 else:
                     # return the hoop terms
-                    return self.define_hoop_terms(pair_index, 0, 1)
+                    return self.define_hoop_terms(pair_index, 0, 1, datum_id)
             elif axial_index == 2:
                 # The XZ-plane is the polar plane
                 if axis_index == 1:
                     # return the radial terms
-                    return self.define_radial_terms(pair_index, 0, 2)
+                    return self.define_radial_terms(pair_index, 0, 2, datum_id)
                 else:
                     # return the hoop terms
-                    return self.define_hoop_terms(pair_index, 0, 2)
+                    return self.define_hoop_terms(pair_index, 0, 2, datum_id)
             else:
                 # The YZ-plane is the polar plane
                 if axis_index == 2:
                     # return the radial terms
-                    return self.define_radial_terms(pair_index, 1, 2)
+                    return self.define_radial_terms(pair_index, 1, 2, datum_id)
                 else:
                     # return the hoop terms
-                    return self.define_hoop_terms(pair_index, 1, 2)
+                    return self.define_hoop_terms(pair_index, 1, 2, datum_id)
 
-    def define_radial_terms(self, pair_index, radial_index, hoop_index):
+    def define_radial_terms(self, pair_index, radial_index, hoop_index, datum_id):
         # Fetch the pair
         pair = self.pairs[pair_index]
-        # Define master cosine and sine
-        c_m = pair.get_master_coordinates()
-        cs_m = c_m[radial_index] / sqrt(c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
-        sn_m = c_m[hoop_index] / sqrt(c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
-        # Define slave cosine and sine (can differ slightly in case the pair is not an exact match)
-        c_s = pair.get_slave_coordinates()
-        cs_s = c_s[radial_index] / sqrt(c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
-        sn_s = c_s[hoop_index] / sqrt(c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
         # Define list
         terms = list()
-        terms.append((cs_m, pair.get_master_set_name(), radial_index + 1))
-        terms.append((-cs_s, pair.get_slave_set_name(), radial_index + 1))
-        terms.append((sn_m, pair.get_master_set_name(), hoop_index + 1))
-        terms.append((-sn_s, pair.get_slave_set_name(), hoop_index + 1))
+        terms.append((1, pair.get_master_set_name(), radial_index + 1, datum_id))
+        terms.append((-1, pair.get_slave_set_name(), radial_index + 1, datum_id))
         # Return the terms
         return terms
 
-    def define_hoop_terms(self, pair_index, radial_index, hoop_index):
+    def define_hoop_terms(self, pair_index, radial_index, hoop_index, datum_id):
         # Define list
         terms = list()
         next_index = pair_index + 1
@@ -481,33 +494,36 @@ class NodeMatcher:
         if next_index < len(self.pairs):
             # Add the terms for the own pair
             pair = self.pairs[pair_index]
-            self.add_hoop_terms(terms, pair, radial_index, hoop_index, False)
+            self.add_hoop_terms(terms, pair, radial_index, hoop_index, False, datum_id)
             # Add the terms for the next pair
             next_pair = self.pairs[next_index]
-            self.add_hoop_terms(terms, next_pair, radial_index, hoop_index, True)
+            self.add_hoop_terms(terms, next_pair, radial_index, hoop_index, True, datum_id)
         # Return the terms
         return terms
 
     @staticmethod
-    def add_hoop_terms(terms, pair, radial_index, hoop_index, inverse):
+    def add_hoop_terms(terms, pair, radial_index, hoop_index, inverse, datum_id):
         # Define master cosine and sine (no need for a square root in the denominator due to the 1/r multiplication
         c_m = pair.get_master_coordinates()
-        cs_m = c_m[radial_index] / (c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
-        sn_m = c_m[hoop_index] / (c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
+        r_m = sqrt(c_m[radial_index]*c_m[radial_index] + c_m[hoop_index]*c_m[hoop_index])
         # Define slave cosine and sine (can differ slightly in case the pair is not an exact match)
         c_s = pair.get_slave_coordinates()
-        cs_s = c_s[radial_index] / (c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
-        sn_s = c_s[hoop_index] / (c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
+        r_s = sqrt(c_s[radial_index]*c_s[radial_index] + c_s[hoop_index]*c_s[hoop_index])
         # Append to the list
         f = -1 if inverse else 1
-        terms.append((-1*f*sn_m, pair.get_master_set_name(), radial_index + 1))
-        terms.append((f*sn_s, pair.get_slave_set_name(), radial_index + 1))
-        terms.append((f*cs_m, pair.get_master_set_name(), hoop_index + 1))
-        terms.append((-1*f*cs_s, pair.get_slave_set_name(), hoop_index + 1))
+        terms.append((1.0*f/r_m, pair.get_master_set_name(), hoop_index + 1, datum_id))
+        terms.append((-1.0*f/r_s, pair.get_slave_set_name(), hoop_index + 1, datum_id))
 
     # Removes the constraint for a periodic boundary condition for all paired nodes
     def delete_constraints(self):
         if self.is_paired():
+            if self.get_mode_index() == 1:
+                # Delete a cylindrical coordinate system
+                try:
+                    datum_name = 'CSYS_PBC_' + self.get_name()
+                    del self.get_model().rootAssembly.features[datum_name]
+                except KeyError:
+                    pass
             for pair in self.pairs:
                 # Delete the sets
                 pair.remove_sets(self.get_model())
