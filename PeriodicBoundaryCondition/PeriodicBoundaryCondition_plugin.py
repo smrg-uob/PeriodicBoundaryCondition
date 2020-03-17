@@ -290,7 +290,7 @@ toolset.registerGuiMenuButton(
     icon=None,
     kernelInitString='import PeriodicBoundaryCondition_kernel',
     applicableModules=abaqusConstants.ALL,
-    version='1.1',
+    version='2.0',
     author='Xavier van Heule',
     description='A plugin to easily create periodic boundary conditions on 3D geometry',
     helpUrl='https://github.com/smrg-uob/PeriodicBoundaryCondition/blob/master/README.md'

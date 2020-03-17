@@ -722,9 +722,9 @@ def reset_combo_box(cbx, keys):
         for key in keys:
             cbx.appendItem(text=key, sel=index)
             index = index + 1
-            # Limit the maximum amount of visible items, else items can appear of screen
-            cbx.setMaxVisible(min(10, len(keys)))
-            cbx.enable()
+        # Limit the maximum amount of visible items, else items can appear off screen
+        cbx.setMaxVisible(min(10, len(keys)))
+        cbx.enable()
     else:
         # Keys do not exist, therefore disable the combo box
         cbx.setMaxVisible(1)

@@ -725,9 +725,6 @@ def inspect_object(obj):
     debug_message('---------------------')
 
 
-# Static array of the three possible match planes
+# Static arrays of the three possible match planes and axis labels
 PLANES = (MatchPlane(0, 1), MatchPlane(0, 2), MatchPlane(1, 2))
-
-
-# Static array of the axis labels
 AXES = ['x', 'y', 'z']
