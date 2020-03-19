@@ -31,8 +31,11 @@ After selecting any item from the dropdown menu, the following data will be disp
  * Valid: If this is False, it means that the master and slave surfaces do not have an equal amount of nodes, it is impossible to continue. An invalid Periodic Boundary Condition can be removed by clicking the Delete button.
  * Matched: This indicates if each of the nodes of the slave surface has been matched with one of the nodes of the master surface. At this point, no modifications have been made to the mdb yet.
  * Paired: This indicates if the constraints have been applied as sets and equations in the mdb. If this is True, the paired nodes should be highlighted with yellow circles in the 'Interaction' Module of Abaqus CAE. If this is False, the nodes can be paired by clicking the 'Pair' Button
- * The Master and Slave indicates the name of the master and the slave surfaces.
- * The pairs gives the amount of node pairs for the current Periodic Boundary Constraint.
+ * The Master and Slave fields indicate the name of the master and the slave surfaces.
+ * Plane gives the used match plane (XY, XZ or YZ).
+ * Mode gives the periodicity mode (Translational or Axial)
+ * Pairs gives the total amount of node pairs for the current Periodic Boundary Constraint.
+ * Exempts gives the number of exempted node pairs
  
  The buttons, from left to right, are used to:
  * Pair the currently selected periodic boundary condition
@@ -50,10 +53,11 @@ The user interface consists of the following items:
 * Select the part: select the relevant part on which the two surfaces are defined
 * Select the master surface: this lists all the surfaces defined on the chosen part
 * Select the slave surface: this also lists all the surfaces defined on the chosen part
-* Select the set to exempt from the master surface, all nodes in these set will be ignored while matching and pairing nodes. This can, for instance, be used for edges which would otherwise be overconstrained due to another boundary condition on a neighbourinig face (by unchecking the box, no exemptions will be made).
-* Select the set to exempt from the slave surface, all nodes in these set will be ignored while matching and pairing nodes. This can, for instance, be used for edges which would otherwise be overconstrained due to another boundary condition on a neighbourinig face (by unchecking the box, no exemptions will be made).
-* PBC Name: the plugin will create sets and equation constraints for each node, this name will be used to identify them
+* Select the set to exempt from the master surface, all nodes in these set will be ignored while pairing nodes. This can, for instance, be used for edges which would otherwise be overconstrained due to another boundary condition on a neighbouring face (by unchecking the box, no exemptions will be made).
+* Select the set to exempt from the slave surface, all nodes in these set will be ignored while pairing nodes. This can, for instance, be used for edges which would otherwise be overconstrained due to another boundary condition on a neighbouring face (by unchecking the box, no exemptions will be made).
+* PBC Name: the plugin will create sets and equation constraints for each node, this name will be used to identify them, and must be unique.
 * Match plane: the plane over which the periodic symmetry should be defined (this should be parallel with the two planes, but is not required)
+* Mode: this can be set to either translational or axial, translational is used for periodicity in the cartesian directions, while axial is used for cylindrical periodicity in the axial direction.
 
 The two buttons will invoke the following:
 * Create button: once a valid combination of inputs are selected (different master and slave surfaces and name defined), this button will become enabled and can be clicked to define the constraints
@@ -66,17 +70,42 @@ The code will try to match nodes with their exact coordinates, and in case this 
 
 ![User Interface](https://github.com/smrg-uob/PeriodicBoundaryCondition/blob/master/doc/gui_confirm.png?raw=true)
 
-This means that out of 1338 nodes, 1247 exact matches were found and 91 were matched based on the closest node. From the latter 91 node pairs, the minimum destance was 2.40E-15 mm, the maximum 1.60E-3 mm, and the average 3.60E-5 mm. Since, in this case, the nodes are spaced with an average of 0.1 mm, this is considered acceptable.
+This means that out of 836 nodes, 825 exact matches were found and 11 nodes were exempted. In this case, all non-exempted node pairs could be matched exactly. In case some nodes were matched by proximity,  the minimum, maximum and average in-plane distance will be reported. In case these statistics can be considered acceptable, for instance when the average mismatch distance is multiple orders of magnitude smaller than the node spacing, one can go ahead by clicking the 'Yes' button after which the program will continue to pair the nodes.
 
-In case the node matching is deemed acceptable, one can click the 'Yes' button after which the program will continue to pair the nodes.
-
-In case the node pairing is deemed unacceptable, one can click the 'No' button, and the program will apply any constraints to the mdb.
-The new entry will appear on the overview dialog with False as the 'Paired' status. It is possible to pair the nodes anyway, or delete the constraint in order to alter the mesh, for instand by applying meshing rules which force the meshes to be equal should be implemented.
+In case the node pairing is deemed unacceptable, one can click the 'No' button, and the program will not apply any constraints.
+The new entry will appear on the overview dialog with False as the 'Paired' status. It is possible to pair the nodes anyway, or delete the constraint in order to alter the mesh, for instance in order to apply meshing rules to enforce the nodes on both faces to better match.
 
 #### Node Pairing
-Before pairing the nodes, the code will not apply any modifications to the mdb. By pairing matched node pairs, individual sets are created by the code, which are then used to apply constraints to the mdb under the form of equations.
+Before pairing the nodes, the code will not apply any modifications to the mdb. By pairing matched node pairs, individual sets for each node are created by the code, which are then used to apply constraints to the mdb under the form of equations.
 These modifications will be undone when a Periodic Boundary Condition with paired nodes is deleted from the Overview dialog.
 
+##### Translational
+For translational periodicity, the following equations will be added for each node pair (expect the last):
+```
+u_(i) - u'_(i) = u_(i+1) - u'_(i+1)
+v_(i) - v'_(i) = v_(i+1) - v'_(i+1)
+w_(i) - w'_(i) = w_(i+1) - w'_(i+1)
+```
+In which `u`, `v` and `w` are the displacements of the node indicated by the index `i` in the `x`, `y` and `z` directions respectively. Non-primed displacements indicate nodes on the master surface and primed displacements indicate nodes on the slave surface.
+
+To implement translational periodicity in all three directions, for instance on a representative cube, the following procedure can be applied:
+1. Apply a periodic boundary condition on the two faces for the first direction without any exempted edges.
+2. Apply a periodic boundary condition on the two faces for the second direction, and apply an exemption for the edges which are shared with the master surface for the first direction on the master and slave surfaces of the second direction (1 edge is exempted on each of the two faces).
+3. Apply a periodic boundary condition on the two faces for the third direction, and apply an exemption for the edges which are shared with the master surface for the first direction or the second direction on the master and slave surfaces of the third direction (2 edges are exempted on each of the two faces).
+
+##### Axial
+Abaqus natively supports axisymmetric or cyclic symmetry, but only in the circumferential direction (see [here](https://abaqus-docs.mit.edu/2017/English/SIMACAECAERefMap/simacae-t-itnhelpcyclicsymmetry.htm) on how to implement cyclic symmetry in Abaqus).
+This can be completed in the axial direction by applying axial periodicity using this plugin. The following equations will be added for each node pair (expect the last):
+```
+u_(i) - u'_(i) = 0
+v_(i)/r_(i) - v'_(i)/r_(i) = v_(i+1)/r_(i+1) - v'_(i+1)/r_(i+1)
+w_(i) - w'_(i) = w_(i+1) - w'_(i+1)
+```
+In which `u`, `v` and `w` are the displacements of the node indicated by the index `i` in the `r`, `t` and `z` directions respectively and  `r` is the  `r` coordinate of the node. Non-primed displacements indicate nodes on the master surface and primed displacements indicate nodes on the slave surface.
+
+To implement full cylindrical periodicity the following procedure can be applied:
+1. Apply cyclic symmetry using the native Abaqus functionality as explained [here](https://abaqus-docs.mit.edu/2017/English/SIMACAECAERefMap/simacae-t-itnhelpcyclicsymmetry.htm).
+2. Apply an axial periodic boundary condition on the top and bottom faces for the axial direction, apply an exemption for the edges which are shared with the master surface from step 1 on the master and slave surfaces from step 2.
 
 ## Limitations
 Currently the plugin suffers from the following limitations:
