@@ -1,5 +1,5 @@
 # PeriodicBoundaryCondition
-A plugin for Abaqus to define periodic boundary conditions to 3D geometry
+A plugin for Abaqus CAe 2018 to define periodic boundary conditions to 3D geometry
 
 The latest version can be downloaded from the [Releases](https://github.com/smrg-uob/PeriodicBoundaryCondition/releases).
 
