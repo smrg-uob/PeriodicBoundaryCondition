@@ -1,5 +1,5 @@
 # PeriodicBoundaryCondition
-A plugin for Abaqus to define periodic boundary conditions to 3D geometry
+A plugin for Abaqus CAE 2018 to define periodic boundary conditions to 3D geometry
 
 The latest version can be downloaded from the [Releases](https://github.com/smrg-uob/PeriodicBoundaryCondition/releases).
 
@@ -80,7 +80,7 @@ Before pairing the nodes, the code will not apply any modifications to the mdb. 
 These modifications will be undone when a Periodic Boundary Condition with paired nodes is deleted from the Overview dialog.
 
 ##### Translational
-For translational periodicity, the following equations will be added for each node pair (expect the last):
+For translational periodicity, the following equations will be added for each node pair (except the last):
 ```
 u_(i) - u'_(i) = u_(i+1) - u'_(i+1)
 v_(i) - v'_(i) = v_(i+1) - v'_(i+1)
