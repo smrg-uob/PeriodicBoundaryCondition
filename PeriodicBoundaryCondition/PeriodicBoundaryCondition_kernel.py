@@ -272,6 +272,9 @@ class NodeMatcher:
             # Store unmatched master and slave nodes
             masters_unmatched = [None] * self.number
             slaves_unmatched = [None] * self.number
+            # Initiate arrays for the proximity matches
+            prox_masters = []
+            prox_slaves = []
             for i in range(0, self.number):
                 masters_unmatched[i] = nodes_m[i]
                 slaves_unmatched[i] = nodes_s[i]
@@ -329,10 +332,23 @@ class NodeMatcher:
                             self.mn = min(dist, self.mn)
                             self.mx = max(dist, self.mx)
                             self.tot = self.tot + dist
+                        # Store the nodes in the sets
+                        prox_masters.append(master.label)
+                        prox_slaves.append(slave.label)
                     # Remove the matched nodes from the unmatched set
                     masters_unmatched.remove(master)
                     slaves_unmatched.remove(slave)
+            # Update the matched status
             self.matched = True
+            # Create the sets for the proximity matched nodes
+            if self.prox > 0:
+                set_name = 'pbc_' + self.get_name() + '_proximity_'
+                seq_masters = self.get_model().rootAssembly.instances[self.get_part().name + '-1']\
+                    .nodes.sequenceFromLabels(prox_masters)
+                seq_slaves = self.get_model().rootAssembly.instances[self.get_part().name + '-1']\
+                    .nodes.sequenceFromLabels(prox_slaves)
+                self.get_model().rootAssembly.Set(name=set_name + 'masters', nodes=seq_masters)
+                self.get_model().rootAssembly.Set(name=set_name + 'slaves', nodes=seq_slaves)
 
     # Gets the total number of node pairs
     def get_pair_count(self):
@@ -580,6 +596,8 @@ class NodeMatcher:
                        ', Exempts: ' + str(self.get_exempt_count()) + '/' + str(self.get_pair_count()))
             msg.append('From proximity matches: min = ' + str(self.get_min_proximity()) + ', max = ' +
                        str(self.get_max_proximity()) + ', avg = ' + str(self.get_av_proximity()))
+            if self.get_proximity_count() > 0:
+                msg.append('Sets identifying the proximity matches have been created under the assembly module')
         else:
             msg.append('Amount of nodes on the master and slave surfaces are not equal: nodes could not be paired')
         return msg

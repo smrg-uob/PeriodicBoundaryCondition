@@ -191,6 +191,8 @@ class Plugin(abaqusGui.AFXForm):
         elif step == self.STEP_CONFIRM:
             if btn == abaqusGui.AFXDialog.ID_CLICKED_CONTINUE:
                 # Apply button in confirm dialog: go back to the overview and pair nodes
+                # Before pairing check if the assembly module is active
+                # TODO
                 self.issue_pair()
                 self.next_step = self.STEP_OVERVIEW
             elif btn == abaqusGui.AFXDialog.ID_CLICKED_CANCEL:
