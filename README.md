@@ -1,4 +1,6 @@
 # PeriodicBoundaryCondition
+[![DOI](https://zenodo.org/badge/240027230.svg)](https://zenodo.org/badge/latestdoi/240027230)
+
 A plugin for Abaqus CAE 2018 to define periodic boundary conditions to 3D geometry
 
 The latest version can be downloaded from the [Releases](https://github.com/smrg-uob/PeriodicBoundaryCondition/releases).
