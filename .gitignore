@@ -116,6 +116,7 @@ venv.bak/
 
 # PyCharm directory
 PeriodicBoundaryCondition/.idea
+.idea/
 
 # Releases
 releases/
@@ -133,6 +134,3 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-
-# PyCharm project files
-.idea/
